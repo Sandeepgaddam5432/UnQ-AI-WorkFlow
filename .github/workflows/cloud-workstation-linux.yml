@@ -18,9 +18,7 @@ env:
   VNC_PORT: '5902'
   VNC_GEOMETRY: ${{ github.event.inputs.vnc_resolution || '1920x1080' }}
   VNC_DEPTH: '24'
-  WORKSPACE_DIR: '$HOME/Desktop/workspace'
   BACKUP_REPO: 'openclaw-backup'
-  OPENCLAW_DIR: '$HOME/.openclaw'
 
 jobs:
   linux-workstation:
@@ -40,42 +38,42 @@ jobs:
           [ -z "$TOKEN" ] && TOKEN="${{ secrets.GITHUB_TOKEN }}"
           BACKUP_URL="https://x-access-token:${TOKEN}@github.com/${GITHUB_ACTOR}/${{ env.BACKUP_REPO }}.git"
           
+          OPENCLAW_DIR="$HOME/.openclaw"
+          WORKSPACE_DIR="$HOME/Desktop/workspace"
+          
           # Function to restore OpenClaw files
           restore_openclaw() {
             echo "📂 Restoring OpenClaw configuration and memory..."
             
-            mkdir -p ${{ env.OPENCLAW_DIR }}
-            mkdir -p ${{ env.OPENCLAW_DIR }}/memory
-            mkdir -p ${{ env.OPENCLAW_DIR }}/workspace
+            mkdir -p "$OPENCLAW_DIR"
+            mkdir -p "$OPENCLAW_DIR/memory"
+            mkdir -p "$OPENCLAW_DIR/workspace"
             
             # Restore config (includes tokens!)
             if [ -d "/tmp/backup/openclaw/config" ]; then
-              cp -r /tmp/backup/openclaw/config/* ${{ env.OPENCLAW_DIR }}/ 2>/dev/null || true
+              cp -r /tmp/backup/openclaw/config/* "$OPENCLAW_DIR/" 2>/dev/null || true
               echo "  ✅ Config restored"
             fi
             
             # Restore memory files
             if [ -d "/tmp/backup/openclaw/memory" ]; then
-              cp -r /tmp/backup/openclaw/memory/* ${{ env.OPENCLAW_DIR }}/memory/ 2>/dev/null || true
+              cp -r /tmp/backup/openclaw/memory/* "$OPENCLAW_DIR/memory/" 2>/dev/null || true
               echo "  ✅ Memory files restored"
             fi
             
             # Restore workspace files (MEMORY.md, USER.md, etc.)
             for file in MEMORY.md USER.md SOUL.md AGENTS.md TOOLS.md IDENTITY.md HEARTBEAT.md BOOTSTRAP.md; do
               if [ -f "/tmp/backup/openclaw/$file" ]; then
-                cp "/tmp/backup/openclaw/$file" ${{ env.OPENCLAW_DIR }}/workspace/ 2>/dev/null || true
+                cp "/tmp/backup/openclaw/$file" "$OPENCLAW_DIR/workspace/" 2>/dev/null || true
                 echo "  ✅ $file restored"
               fi
             done
             
             # Restore skills
             if [ -d "/tmp/backup/openclaw/skills" ]; then
-              cp -r /tmp/backup/openclaw/skills ${{ env.OPENCLAW_DIR }}/ 2>/dev/null || true
+              cp -r /tmp/backup/openclaw/skills "$OPENCLAW_DIR/" 2>/dev/null || true
               echo "  ✅ Skills restored"
             fi
-            
-            # Set workspace path
-            export OPENCLAW_WORKSPACE="${{ env.OPENCLAW_DIR }}/workspace"
           }
           
           # Check if backup repository exists
@@ -94,7 +92,7 @@ jobs:
             # Restore Projects
             if [ -f "/tmp/backup/projects/README.md" ]; then
               echo "📂 Restoring projects..."
-              mkdir -p ${{ env.WORKSPACE_DIR }}
+              mkdir -p "$WORKSPACE_DIR"
               
               RESTORE_COUNT=0
               while IFS= read -r REPO_PATH; do
@@ -104,7 +102,7 @@ jobs:
                 
                 if git clone --depth=1 \
                   "https://x-access-token:${TOKEN}@github.com/${REPO_PATH}.git" \
-                  "${{ env.WORKSPACE_DIR }}/${REPO_NAME}" 2>/dev/null; then
+                  "$WORKSPACE_DIR/${REPO_NAME}" 2>/dev/null; then
                   ((RESTORE_COUNT++))
                   echo "    ✅ Restored"
                 else
@@ -417,13 +415,15 @@ jobs:
           [ -z "$TOKEN" ] && TOKEN="${{ secrets.GITHUB_TOKEN }}"
           TELEGRAM_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           
+          OPENCLAW_DIR="$HOME/.openclaw"
+          
           # Create OpenClaw directory structure
-          mkdir -p ${{ env.OPENCLAW_DIR }}
-          mkdir -p ${{ env.OPENCLAW_DIR }}/workspace
-          mkdir -p ${{ env.OPENCLAW_DIR }}/memory
+          mkdir -p "$OPENCLAW_DIR"
+          mkdir -p "$OPENCLAW_DIR/workspace"
+          mkdir -p "$OPENCLAW_DIR/memory"
           
           # Check if config exists from restore
-          if [ -f "${{ env.OPENCLAW_DIR }}/openclaw.json" ]; then
+          if [ -f "$OPENCLAW_DIR/openclaw.json" ]; then
             echo "✅ Using restored OpenClaw configuration"
           else
             echo "📝 Creating new OpenClaw configuration..."
@@ -432,7 +432,7 @@ jobs:
             GATEWAY_TOKEN=$(openssl rand -hex 24)
             
             # Create OpenClaw config
-            cat > ${{ env.OPENCLAW_DIR }}/openclaw.json << EOFCONFIG
+            cat > "$OPENCLAW_DIR/openclaw.json" << EOFCONFIG
           {
             "auth": {
               "token": "${GATEWAY_TOKEN}"
@@ -447,7 +447,7 @@ jobs:
               }
             },
             "workspace": {
-              "path": "${{ env.OPENCLAW_DIR }}/workspace"
+              "path": "${OPENCLAW_DIR}/workspace"
             }
           }
           EOFCONFIG
@@ -456,7 +456,7 @@ jobs:
           fi
           
           # Create default workspace files if not restored
-          WORKSPACE="${{ env.OPENCLAW_DIR }}/workspace"
+          WORKSPACE="$OPENCLAW_DIR/workspace"
           
           if [ ! -f "$WORKSPACE/MEMORY.md" ]; then
             cat > "$WORKSPACE/MEMORY.md" << 'EOFMEMORY'
@@ -550,7 +550,7 @@ jobs:
           
           ## OpenClaw Config
           - Model: ollama/glm-5:cloud
-          - Channels: Telegram (@UnQChat)
+          - Channels: Telegram (@UnQChatai_Bot)
           
           EOFTOOLS
             echo "✅ Created TOOLS.md"
@@ -598,8 +598,10 @@ jobs:
         run: |
           echo "🚀 Starting OpenClaw Gateway..."
           
+          OPENCLAW_DIR="$HOME/.openclaw"
+          
           # Start OpenClaw as background service
-          cd ${{ env.OPENCLAW_DIR }}
+          cd "$OPENCLAW_DIR"
           
           nohup openclaw gateway start > /tmp/openclaw.log 2>&1 &
           OPENCLAW_PID=$!
@@ -927,7 +929,7 @@ jobs:
             # OpenClaw health check
             if ! pgrep -f "openclaw" > /dev/null; then
               echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔄 Restarting OpenClaw..."
-              cd ${{ env.OPENCLAW_DIR }}
+              cd "$HOME/.openclaw"
               nohup openclaw gateway start > /tmp/openclaw.log 2>&1 &
             fi
             
