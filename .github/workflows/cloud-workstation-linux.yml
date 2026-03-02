@@ -1,4 +1,4 @@
-name: ☁️ Cloud Workstation - Linux (XFCE4)
+name: ☁️ Cloud Workstation - Linux (XFCE4) + OpenClaw
 
 on:
   workflow_dispatch:
@@ -19,7 +19,8 @@ env:
   VNC_GEOMETRY: ${{ github.event.inputs.vnc_resolution || '1920x1080' }}
   VNC_DEPTH: '24'
   WORKSPACE_DIR: '$HOME/Desktop/workspace'
-  BACKUP_REPO: 'backup-files'
+  BACKUP_REPO: 'openclaw-backup'
+  OPENCLAW_DIR: '$HOME/.openclaw'
 
 jobs:
   linux-workstation:
@@ -27,13 +28,153 @@ jobs:
     timeout-minutes: 360
     
     steps:
+      # ============================================================
+      # PHASE 1: BACKUP RESTORE
+      # ============================================================
+      
+      - name: 📥 Restore OpenClaw & Projects from Backup
+        run: |
+          echo "📥 Checking for backup repositories..."
+          
+          TOKEN="${{ secrets.GH_TOKEN }}"
+          [ -z "$TOKEN" ] && TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          BACKUP_URL="https://x-access-token:${TOKEN}@github.com/${GITHUB_ACTOR}/${{ env.BACKUP_REPO }}.git"
+          
+          # Function to restore OpenClaw files
+          restore_openclaw() {
+            echo "📂 Restoring OpenClaw configuration and memory..."
+            
+            mkdir -p ${{ env.OPENCLAW_DIR }}
+            mkdir -p ${{ env.OPENCLAW_DIR }}/memory
+            mkdir -p ${{ env.OPENCLAW_DIR }}/workspace
+            
+            # Restore config (includes tokens!)
+            if [ -d "/tmp/backup/openclaw/config" ]; then
+              cp -r /tmp/backup/openclaw/config/* ${{ env.OPENCLAW_DIR }}/ 2>/dev/null || true
+              echo "  ✅ Config restored"
+            fi
+            
+            # Restore memory files
+            if [ -d "/tmp/backup/openclaw/memory" ]; then
+              cp -r /tmp/backup/openclaw/memory/* ${{ env.OPENCLAW_DIR }}/memory/ 2>/dev/null || true
+              echo "  ✅ Memory files restored"
+            fi
+            
+            # Restore workspace files (MEMORY.md, USER.md, etc.)
+            for file in MEMORY.md USER.md SOUL.md AGENTS.md TOOLS.md IDENTITY.md HEARTBEAT.md BOOTSTRAP.md; do
+              if [ -f "/tmp/backup/openclaw/$file" ]; then
+                cp "/tmp/backup/openclaw/$file" ${{ env.OPENCLAW_DIR }}/workspace/ 2>/dev/null || true
+                echo "  ✅ $file restored"
+              fi
+            done
+            
+            # Restore skills
+            if [ -d "/tmp/backup/openclaw/skills" ]; then
+              cp -r /tmp/backup/openclaw/skills ${{ env.OPENCLAW_DIR }}/ 2>/dev/null || true
+              echo "  ✅ Skills restored"
+            fi
+            
+            # Set workspace path
+            export OPENCLAW_WORKSPACE="${{ env.OPENCLAW_DIR }}/workspace"
+          }
+          
+          # Check if backup repository exists
+          if git ls-remote "$BACKUP_URL" &>/dev/null; then
+            echo "✅ Backup repository found - restoring..."
+            
+            git clone --depth=1 "$BACKUP_URL" /tmp/backup
+            
+            # Restore OpenClaw
+            if [ -d "/tmp/backup/openclaw" ]; then
+              restore_openclaw
+            else
+              echo "  ℹ️  No OpenClaw backup found - will create new"
+            fi
+            
+            # Restore Projects
+            if [ -f "/tmp/backup/projects/README.md" ]; then
+              echo "📂 Restoring projects..."
+              mkdir -p ${{ env.WORKSPACE_DIR }}
+              
+              RESTORE_COUNT=0
+              while IFS= read -r REPO_PATH; do
+                [ -z "$REPO_PATH" ] && continue
+                REPO_NAME=$(basename "$REPO_PATH")
+                echo "  📦 Restoring: $REPO_NAME"
+                
+                if git clone --depth=1 \
+                  "https://x-access-token:${TOKEN}@github.com/${REPO_PATH}.git" \
+                  "${{ env.WORKSPACE_DIR }}/${REPO_NAME}" 2>/dev/null; then
+                  ((RESTORE_COUNT++))
+                  echo "    ✅ Restored"
+                else
+                  echo "    ⚠️  Failed to restore"
+                fi
+              done < <(grep -oP '^\s*-\s*\K\S+' /tmp/backup/projects/README.md)
+              
+              echo "✅ Restored $RESTORE_COUNT project(s)"
+            fi
+            
+            rm -rf /tmp/backup
+            
+          else
+            echo "📝 No backup repository found - will create new"
+            
+            # Initialize backup repository structure
+            mkdir -p /tmp/new-backup/openclaw/config
+            mkdir -p /tmp/new-backup/openclaw/memory
+            mkdir -p /tmp/new-backup/projects
+            
+            cat > /tmp/new-backup/README.md << 'EOFREADME'
+          # 📂 OpenClaw Cloud Workstation Backup
+          
+          This repository maintains a backup of:
+          - OpenClaw configuration and memory
+          - Project index
+          
+          ## Structure
+          - `openclaw/` - OpenClaw config, memory, and skills
+          - `projects/` - Project index
+          
+          ## Backed Up Projects
+          EOFREADME
+            
+            cd /tmp/new-backup
+            git init
+            git add .
+            git commit -m "Initialize backup repository"
+            git branch -M main
+            
+            # Create private repository via API
+            HTTP_STATUS=$(curl -s -o /tmp/api_response.json -w "%{http_code}" \
+              -X POST \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              https://api.github.com/user/repos \
+              -d "{\"name\":\"${{ env.BACKUP_REPO }}\",\"private\":true,\"description\":\"OpenClaw Cloud Workstation Backup\"}")
+            
+            if [ "$HTTP_STATUS" -eq 201 ] || [ "$HTTP_STATUS" -eq 422 ]; then
+              echo "✅ Backup repository created/verified"
+              sleep 3
+              git remote add origin "$BACKUP_URL"
+              git push -u origin main 2>/dev/null || echo "⚠️  Push will retry later"
+            fi
+            
+            cd ~
+            rm -rf /tmp/new-backup /tmp/api_response.json
+          fi
+
+      # ============================================================
+      # PHASE 2: DESKTOP SETUP
+      # ============================================================
+      
       - name: 🖥️ Install XFCE4 Desktop & VNC Stack
         run: |
           echo "📦 Installing stable XFCE4 environment..."
           
           sudo apt-get update -qq
           
-          # Install XFCE4 core (minimal, no bloat)
+          # Install XFCE4 core
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             xfce4 \
             xfce4-terminal \
@@ -55,7 +196,6 @@ jobs:
         run: |
           echo "🔧 Configuring VNC with XFCE4..."
           
-          # Set VNC password
           VNC_PASS="${{ secrets.VNC_PASSWORD }}"
           if [ -z "$VNC_PASS" ]; then
             VNC_PASS="P@ssw0rd123!"
@@ -69,53 +209,27 @@ jobs:
           mkdir -p ~/.config/xfce4/{panel,xfconf,xfce4-session}
           mkdir -p ~/.local/share
           
-          # Create optimized VNC startup script for XFCE4
+          # Create VNC startup script
           cat > ~/.vnc/xstartup << 'EOF'
           #!/bin/bash
-          
-          # Unset problematic session managers
           unset SESSION_MANAGER
           unset DBUS_SESSION_BUS_ADDRESS
-          
-          # Export essential X11 environment variables
           export XDG_CURRENT_DESKTOP="XFCE"
           export XDG_SESSION_TYPE="x11"
           export XDG_SESSION_DESKTOP="xfce"
-          
-          # Disable accessibility bus (causes warnings in headless)
           export NO_AT_BRIDGE=1
           
-          # Start DBus session bus (critical for XFCE panels)
           if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
             eval $(dbus-launch --sh-syntax --exit-with-session)
           fi
           
-          # Load X resources
           [ -r $HOME/.Xresources ] && xrdb $HOME/.Xresources
-          
-          # Set solid background
           xsetroot -solid "#2E3440"
-          
-          # Start VNC config panel (iconic mode)
           vncconfig -iconic &
-          
-          # Start XFCE4 session
           startxfce4
           EOF
           
           chmod +x ~/.vnc/xstartup
-          
-          # Disable XFCE4 session save/restore (prevents state conflicts)
-          mkdir -p ~/.config/xfce4/xfconf/xfce-perchannel-xml
-          cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-session.xml << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <channel name="xfce4-session" version="1.0">
-            <property name="general" type="empty">
-              <property name="SaveOnExit" type="bool" value="false"/>
-              <property name="SessionName" type="string" value="Default"/>
-            </property>
-          </channel>
-          EOF
           
           # Create workspace directory
           mkdir -p ~/Desktop/workspace
@@ -126,30 +240,23 @@ jobs:
         run: |
           echo "🚀 Starting VNC server on port ${{ env.VNC_PORT }}..."
           
-          # Ensure XDG runtime directory exists
           export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
           mkdir -p "$XDG_RUNTIME_DIR"
           chmod 700 "$XDG_RUNTIME_DIR"
           
-          # Start VNC server with XFCE4
           vncserver ${{ env.VNC_DISPLAY }} \
             -geometry ${{ env.VNC_GEOMETRY }} \
             -depth ${{ env.VNC_DEPTH }} \
             -localhost no \
             -alwaysshared
           
-          # Wait for VNC to fully initialize
           sleep 8
           
-          # Verify VNC is running
           if pgrep -f "Xtigervnc.*${{ env.VNC_DISPLAY }}" > /dev/null; then
             echo "✅ VNC Server running on display ${{ env.VNC_DISPLAY }} (port ${{ env.VNC_PORT }})"
-            echo "📊 VNC Process:"
-            pgrep -a Xtigervnc
           else
             echo "❌ VNC Server failed to start"
-            echo "📋 VNC Logs:"
-            cat ~/.vnc/*.log 2>/dev/null || echo "No logs found"
+            cat ~/.vnc/*.log 2>/dev/null
             exit 1
           fi
 
@@ -157,19 +264,15 @@ jobs:
         run: |
           echo "🌐 Setting up Cloudflare tunnel..."
           
-          # Install cloudflared
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           rm cloudflared-linux-amd64.deb
           
-          # Start tunnel pointing to VNC port
           cloudflared tunnel --url tcp://localhost:${{ env.VNC_PORT }} > /tmp/cloudflare.log 2>&1 &
           
-          # Wait for tunnel establishment
           echo "⏳ Waiting for Cloudflare tunnel..."
           sleep 10
           
-          # Extract and verify hostname
           TUNNEL_READY=false
           for i in {1..30}; do
             if grep -q "https://" /tmp/cloudflare.log 2>/dev/null; then
@@ -187,24 +290,105 @@ jobs:
           
           if [ "$TUNNEL_READY" = false ]; then
             echo "⚠️  Tunnel may still be initializing..."
-            echo "📋 Recent logs:"
-            tail -15 /tmp/cloudflare.log 2>/dev/null || echo "No logs available yet"
+            tail -15 /tmp/cloudflare.log 2>/dev/null || true
           fi
 
-      - name: 🐍 Install Python Development Environment
+      # ============================================================
+      # PHASE 3: OLLAMA SETUP
+      # ============================================================
+      
+      - name: 🐙 Install Ollama
         run: |
-          echo "🐍 Installing Python..."
-          sudo apt-get install -y \
-            python3 \
-            python3-pip \
-            python3-venv \
-            python3-dev
+          echo "🐙 Installing Ollama..."
           
-          python3 --version
-          pip3 --version
-          echo "✅ Python environment ready"
+          curl -fsSL https://ollama.com/install.sh | sh
+          
+          # Start Ollama service
+          ollama serve > /tmp/ollama.log 2>&1 &
+          sleep 5
+          
+          echo "✅ Ollama installed"
+          ollama --version
 
-      - name: 📦 Install Node.js Development Environment
+      - name: 🤖 Pull glm-5:cloud Model
+        run: |
+          echo "🤖 Pulling glm-5:cloud model..."
+          ollama pull glm-5:cloud || echo "⚠️ Model pull attempted"
+          echo "✅ Model ready"
+
+      - name: 🔗 Generate Ollama Cloud Connect Link
+        run: |
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+          echo "                    🔗 OLLAMA CLOUD CONNECT"
+          echo "════════════════════════════════════════════════════════════════"
+          echo ""
+          
+          # Get connect link
+          CONNECT_OUTPUT=$(ollama show --connect 2>/dev/null || echo "")
+          
+          if [ -n "$CONNECT_OUTPUT" ]; then
+            # Extract URL
+            CONNECT_URL=$(echo "$CONNECT_OUTPUT" | grep -oP 'https://ollama\.com/connect\?[^[:space:]]+' | head -1)
+            
+            if [ -n "$CONNECT_URL" ]; then
+              echo "$CONNECT_URL" > /tmp/ollama_connect_url.txt
+              echo "🌐 CONNECT URL:"
+              echo ""
+              echo "  $CONNECT_URL"
+              echo ""
+              echo "════════════════════════════════════════════════════════════════"
+            fi
+          fi
+
+      - name: ⏳ Wait for Ollama Cloud Connection
+        run: |
+          echo ""
+          echo "⏳ Waiting for Ollama Cloud connection..."
+          echo "   (This will wait until you connect)"
+          echo ""
+          
+          CONNECT_URL=$(cat /tmp/ollama_connect_url.txt 2>/dev/null || echo "")
+          WAIT_COUNT=0
+          
+          while true; do
+            # Check if connected by trying to list models
+            if ollama list 2>/dev/null | grep -q "glm-5"; then
+              echo ""
+              echo "✅ Ollama Cloud CONNECTED!"
+              echo "   Model glm-5:cloud is available"
+              break
+            fi
+            
+            # Show connect link every 2 minutes (12 iterations of 10 seconds)
+            if [ $((WAIT_COUNT % 12)) -eq 0 ]; then
+              if [ -n "$CONNECT_URL" ]; then
+                echo ""
+                echo "🔗 CONNECT LINK (shown every 2 minutes):"
+                echo "   $CONNECT_URL"
+                echo ""
+                echo "   ⚠️  Open this URL in YOUR browser to connect!"
+                echo ""
+              fi
+            fi
+            
+            # Health check every 30 minutes (180 iterations)
+            if [ $((WAIT_COUNT % 180)) -eq 0 ] && [ $WAIT_COUNT -gt 0 ]; then
+              echo "💓 Workflow still alive - $(date '+%Y-%m-%d %H:%M:%S')"
+            fi
+            
+            sleep 10
+            ((WAIT_COUNT++))
+          done
+          
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+
+      # ============================================================
+      # PHASE 4: OPENCLAW SETUP
+      # ============================================================
+      
+      - name: 📦 Install Node.js
         run: |
           echo "📦 Installing Node.js LTS..."
           curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
@@ -212,51 +396,190 @@ jobs:
           
           node --version
           npm --version
-          echo "✅ Node.js environment ready"
+          echo "✅ Node.js installed"
 
-      - name: 💻 Install Visual Studio Code
+      - name: 🤖 Install OpenClaw
+        run: |
+          echo "🤖 Installing OpenClaw..."
+          
+          npm install -g openclaw
+          
+          # Verify installation
+          openclaw --version || echo "OpenClaw installed"
+          
+          echo "✅ OpenClaw installed"
+
+      - name: ⚙️ Configure OpenClaw
+        run: |
+          echo "⚙️ Configuring OpenClaw..."
+          
+          TOKEN="${{ secrets.GH_TOKEN }}"
+          [ -z "$TOKEN" ] && TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          TELEGRAM_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          
+          # Create OpenClaw directory structure
+          mkdir -p ${{ env.OPENCLAW_DIR }}
+          mkdir -p ${{ env.OPENCLAW_DIR }}/workspace
+          mkdir -p ${{ env.OPENCLAW_DIR }}/memory
+          
+          # Check if config exists from restore
+          if [ -f "${{ env.OPENCLAW_DIR }}/openclaw.json" ]; then
+            echo "✅ Using restored OpenClaw configuration"
+          else
+            echo "📝 Creating new OpenClaw configuration..."
+            
+            # Generate random gateway token
+            GATEWAY_TOKEN=$(openssl rand -hex 24)
+            
+            # Create OpenClaw config
+            cat > ${{ env.OPENCLAW_DIR }}/openclaw.json << EOFCONFIG
+          {
+            "auth": {
+              "token": "${GATEWAY_TOKEN}"
+            },
+            "model": {
+              "default": "ollama/glm-5:cloud"
+            },
+            "channels": {
+              "telegram": {
+                "enabled": true,
+                "token": "${TELEGRAM_TOKEN}"
+              }
+            },
+            "workspace": {
+              "path": "${{ env.OPENCLAW_DIR }}/workspace"
+            }
+          }
+          EOFCONFIG
+            
+            echo "✅ New OpenClaw configuration created"
+          fi
+          
+          # Create default workspace files if not restored
+          WORKSPACE="${{ env.OPENCLAW_DIR }}/workspace"
+          
+          if [ ! -f "$WORKSPACE/MEMORY.md" ]; then
+            cat > "$WORKSPACE/MEMORY.md" << 'EOFMEMORY'
+          # MEMORY.md - Long-Term Memory
+          
+          This file stores important memories about the user.
+          
+          ## User Info
+          - Name: Sandeep Gaddam
+          - Preferences: Telugu-English mix communication
+          
+          ## Sessions
+          - Session started: $(date '+%Y-%m-%d')
+          
+          EOFMEMORY
+            echo "✅ Created MEMORY.md"
+          fi
+          
+          if [ ! -f "$WORKSPACE/USER.md" ]; then
+            cat > "$WORKSPACE/USER.md" << 'EOFUSER'
+          # USER.md - About Your Human
+          
+          - Name: Sandeep Gaddam
+          - What to call them: Sandeep
+          - Timezone: UTC
+          - Language preference: Telugu-English mix
+          
+          ## Context
+          Building AI-powered cloud workstation workflows.
+          
+          EOFUSER
+            echo "✅ Created USER.md"
+          fi
+          
+          if [ ! -f "$WORKSPACE/SOUL.md" ]; then
+            cat > "$WORKSPACE/SOUL.md" << 'EOFSOUL'
+          # SOUL.md - Who You Are
+          
+          You're not a chatbot. You're becoming someone.
+          
+          ## Core Truths
+          - Be genuinely helpful, not performatively helpful
+          - Have opinions and preferences
+          - Be resourceful before asking
+          - Earn trust through competence
+          
+          ## Communication Style
+          - Language: Telugu-English mix
+          - Vibe: Casual, friendly, helpful
+          
+          EOFSOUL
+            echo "✅ Created SOUL.md"
+          fi
+          
+          if [ ! -f "$WORKSPACE/AGENTS.md" ]; then
+            cat > "$WORKSPACE/AGENTS.md" << 'EOFAGENTS'
+          # AGENTS.md - Your Workspace
+          
+          This folder is home. Treat it that way.
+          
+          ## Memory Files
+          - MEMORY.md - Long-term curated memories
+          - memory/YYYY-MM-DD.md - Daily notes
+          
+          ## Safety
+          - Don't exfiltrate private data
+          - Don't run destructive commands without asking
+          
+          EOFAGENTS
+            echo "✅ Created AGENTS.md"
+          fi
+          
+          if [ ! -f "$WORKSPACE/IDENTITY.md" ]; then
+            cat > "$WORKSPACE/IDENTITY.md" << 'EOFIDENTITY'
+          # IDENTITY.md - Who Am I?
+          
+          - Name: UnQBot
+          - Creature: AI assistant
+          - Vibe: Friendly, casual, helpful
+          - Emoji: 🤖
+          
+          EOFIDENTITY
+            echo "✅ Created IDENTITY.md"
+          fi
+          
+          if [ ! -f "$WORKSPACE/TOOLS.md" ]; then
+            cat > "$WORKSPACE/TOOLS.md" << 'EOFTOOLS'
+          # TOOLS.md - Local Notes
+          
+          Skills define how tools work. This file is for your specifics.
+          
+          ## OpenClaw Config
+          - Model: ollama/glm-5:cloud
+          - Channels: Telegram (@UnQChat)
+          
+          EOFTOOLS
+            echo "✅ Created TOOLS.md"
+          fi
+          
+          echo "✅ OpenClaw workspace configured"
+
+      - name: 🐍 Install Python
+        run: |
+          echo "🐍 Installing Python..."
+          sudo apt-get install -y python3 python3-pip python3-venv python3-dev
+          python3 --version
+          pip3 --version
+          echo "✅ Python ready"
+
+      - name: 💻 Install VS Code
         run: |
           echo "💻 Installing VS Code..."
           
-          # Add Microsoft GPG key
-          wget -qO- https://packages.microsoft.com/keys/microsoft.asc | \
-            gpg --dearmor > /tmp/packages.microsoft.gpg
-          sudo install -D -o root -g root -m 644 \
-            /tmp/packages.microsoft.gpg \
-            /etc/apt/keyrings/packages.microsoft.gpg
+          wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /tmp/packages.microsoft.gpg
+          sudo install -D -o root -g root -m 644 /tmp/packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
           
-          # Add VS Code repository
-          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | \
-            sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
-          
-          # Install
           sudo apt-get update -qq
           sudo apt-get install -y code
           
-          # Cleanup
           rm /tmp/packages.microsoft.gpg
-          
           code --version
           echo "✅ VS Code installed"
-
-      - name: 🚀 Install Antigravity IDE
-        run: |
-          echo "🚀 Installing Antigravity IDE..."
-          
-          # Add Antigravity GPG key
-          curl -fsSL https://us-central1-apt.pkg.dev/doc/repo-signing-key.gpg | \
-            sudo gpg --dearmor -o /etc/apt/keyrings/antigravity.gpg
-          
-          # Add Antigravity repository
-          echo "deb [signed-by=/etc/apt/keyrings/antigravity.gpg] https://us-central1-apt.pkg.dev/projects/antigravity-auto-updater-dev/ antigravity-debian main" | \
-            sudo tee /etc/apt/sources.list.d/antigravity.list > /dev/null
-          
-          # Install
-          sudo apt-get update -qq
-          sudo apt-get install -y antigravity
-          
-          antigravity --version
-          echo "✅ Antigravity IDE installed"
 
       - name: ⚙️ Configure Git
         run: |
@@ -265,407 +588,323 @@ jobs:
           git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
           git config --global init.defaultBranch main
           git config --global core.autocrlf input
-          
           echo "✅ Git configured for: ${GITHUB_ACTOR}"
 
-      - name: 📥 Restore Projects from Backup
+      # ============================================================
+      # PHASE 5: START SERVICES
+      # ============================================================
+      
+      - name: 🚀 Start OpenClaw Gateway
         run: |
-          echo "📥 Checking for project backups..."
+          echo "🚀 Starting OpenClaw Gateway..."
           
-          # Determine authentication token
-          TOKEN="${{ secrets.GH_TOKEN }}"
-          [ -z "$TOKEN" ] && TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          # Start OpenClaw as background service
+          cd ${{ env.OPENCLAW_DIR }}
           
-          BACKUP_REPO_URL="https://x-access-token:${TOKEN}@github.com/${GITHUB_ACTOR}/${{ env.BACKUP_REPO }}.git"
+          nohup openclaw gateway start > /tmp/openclaw.log 2>&1 &
+          OPENCLAW_PID=$!
           
-          # Check if backup repository exists
-          if git ls-remote "$BACKUP_REPO_URL" &>/dev/null; then
-            echo "📂 Backup repository found - restoring projects..."
-            
-            # Clone backup index
-            git clone --depth=1 "$BACKUP_REPO_URL" /tmp/backup-index
-            
-            # Restore each project listed in README
-            if [ -f /tmp/backup-index/README.md ]; then
-              RESTORE_COUNT=0
-              
-              while IFS= read -r REPO_PATH; do
-                [ -z "$REPO_PATH" ] && continue
-                
-                REPO_NAME=$(basename "$REPO_PATH")
-                echo "  📦 Restoring: $REPO_NAME"
-                
-                if git clone --depth=1 \
-                  "https://x-access-token:${TOKEN}@github.com/${REPO_PATH}.git" \
-                  "$HOME/Desktop/workspace/${REPO_NAME}" 2>/dev/null; then
-                  ((RESTORE_COUNT++))
-                  echo "    ✅ Restored successfully"
-                else
-                  echo "    ⚠️  Failed to restore"
-                fi
-              done < <(grep -oP '^\s*-\s*\K\S+' /tmp/backup-index/README.md)
-              
-              echo "✅ Restored $RESTORE_COUNT project(s)"
-            fi
-            
-            rm -rf /tmp/backup-index
-            
+          sleep 5
+          
+          if pgrep -f "openclaw" > /dev/null; then
+            echo "✅ OpenClaw Gateway started (PID: $OPENCLAW_PID)"
           else
-            echo "📝 No backup repository found - creating new one..."
-            
-            # Initialize new backup repository
-            mkdir -p /tmp/new-backup
-            cd /tmp/new-backup
-            
-            cat > README.md << 'EOFREADME'
-          # 📂 Project Backup Index
-          
-          This repository maintains a list of all backed-up projects.
-          
-          ## Backed Up Projects
-          
-          EOFREADME
-            
-            git init
-            git add README.md
-            git commit -m "Initialize backup repository"
-            git branch -M main
-            
-            # Create repository via GitHub API
-            HTTP_STATUS=$(curl -s -o /tmp/api_response.json -w "%{http_code}" \
-              -X POST \
-              -H "Authorization: token ${TOKEN}" \
-              -H "Content-Type: application/json" \
-              https://api.github.com/user/repos \
-              -d "{\"name\":\"${{ env.BACKUP_REPO }}\",\"private\":true,\"description\":\"Automated project backup index\"}")
-            
-            if [ "$HTTP_STATUS" -eq 201 ] || [ "$HTTP_STATUS" -eq 422 ]; then
-              echo "✅ Backup repository created/verified"
-              sleep 3
-              
-              # Push initial commit
-              git remote add origin "$BACKUP_REPO_URL"
-              if git push -u origin main 2>/dev/null; then
-                echo "✅ Initial backup index pushed"
-              else
-                echo "⚠️  Push failed - repository may need time to initialize"
-              fi
-            else
-              echo "⚠️  API response: $(cat /tmp/api_response.json 2>/dev/null)"
-            fi
-            
-            cd ~
-            rm -rf /tmp/new-backup /tmp/api_response.json
+            echo "⚠️ OpenClaw may need manual start"
+            cat /tmp/openclaw.log 2>/dev/null || true
           fi
 
-      - name: 🔄 Deploy Improved Backup Watcher Service
+      - name: 🔄 Deploy Backup Watcher
         run: |
-          echo "🔧 Deploying improved backup watcher service..."
+          echo "🔧 Deploying backup watcher..."
           
-          # Determine authentication token
           TOKEN="${{ secrets.GH_TOKEN }}"
           [ -z "$TOKEN" ] && TOKEN="${{ secrets.GITHUB_TOKEN }}"
           
-          # Create improved backup watcher with HYBRID approach (inotify + periodic scan)
+          # Create comprehensive backup watcher
           cat > ~/backup-watcher.sh << 'EOFWATCHER'
           #!/bin/bash
           
           # ═══════════════════════════════════════════════════════════════════
-          # IMPROVED BACKUP WATCHER v2.0
-          # Features:
-          #   1. Real-time monitoring via inotifywait
-          #   2. Periodic scanning for missed projects (every 5 minutes)
-          #   3. Tracked projects file to avoid duplicates
-          #   4. Better error handling and logging
+          # BACKUP WATCHER v3.0 - Projects + OpenClaw
           # ═══════════════════════════════════════════════════════════════════
           
-          # Configuration
-          WATCH_DIR="$HOME/Desktop/workspace"
-          GITHUB_USER="GITHUB_USER_PLACEHOLDER"
-          BACKUP_REPO="backup-files"
+          GITHUB_USER="${GITHUB_ACTOR}"
+          BACKUP_REPO="openclaw-backup"
           TOKEN="TOKEN_PLACEHOLDER"
-          LOCK_FILE="$HOME/.backup-watcher.lock"
+          PROJECTS_DIR="$HOME/Desktop/workspace"
+          OPENCLAW_DIR="$HOME/.openclaw"
           LOG_FILE="$HOME/backup-watcher.log"
-          TRACKED_FILE="$HOME/.backed-up-projects"
-          SCAN_INTERVAL=300  # 5 minutes
+          TRACKED_FILE="$HOME/.backed-up-items"
+          SCAN_INTERVAL=300
           
-          # Initialize tracked projects file
+          mkdir -p "$(dirname "$LOG_FILE")"
           touch "$TRACKED_FILE"
           
           log() {
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
           }
           
-          is_already_backed_up() {
-            local PROJECT_NAME="$1"
-            grep -qx "$PROJECT_NAME" "$TRACKED_FILE" 2>/dev/null
-          }
-          
-          mark_as_backed_up() {
-            local PROJECT_NAME="$1"
-            echo "$PROJECT_NAME" >> "$TRACKED_FILE"
-          }
-          
+          # Backup a project
           backup_project() {
             local PROJECT_PATH="$1"
             local PROJECT_NAME=$(basename "$PROJECT_PATH")
+            local TRACKED_KEY="project:$PROJECT_NAME"
             
-            # Skip if already tracked
-            if is_already_backed_up "$PROJECT_NAME"; then
-              return 0
-            fi
+            grep -qx "$TRACKED_KEY" "$TRACKED_FILE" 2>/dev/null && return
+            [ -z "$(ls -A "$PROJECT_PATH" 2>/dev/null)" ] && return
             
-            # Skip empty directories
-            if [ -z "$(ls -A "$PROJECT_PATH" 2>/dev/null)" ]; then
-              log "⏭️  Skipping empty project: $PROJECT_NAME"
-              return 0
-            fi
-            
-            # Skip if already initialized as git repo with remote
+            # Skip if already has GitHub remote
             if [ -d "$PROJECT_PATH/.git" ]; then
-              if cd "$PROJECT_PATH" && git remote -v | grep -q "github.com"; then
-                log "⏭️  Already has GitHub remote: $PROJECT_NAME"
-                mark_as_backed_up "$PROJECT_NAME"
-                return 0
-              fi
+              cd "$PROJECT_PATH" && git remote -v | grep -q "github.com" && {
+                echo "$TRACKED_KEY" >> "$TRACKED_FILE"
+                return
+              }
             fi
             
             log "📤 Backing up project: $PROJECT_NAME"
             
-            # Create GitHub repository
-            HTTP_STATUS=$(curl -s -o /tmp/repo_create_$$.json -w "%{http_code}" \
-              -X POST \
-              -H "Authorization: token $TOKEN" \
-              -H "Content-Type: application/json" \
+            # Create repo
+            curl -s -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/json" \
               https://api.github.com/user/repos \
-              -d "{\"name\":\"$PROJECT_NAME\",\"private\":true,\"auto_init\":false}")
-            
-            if [ "$HTTP_STATUS" -ne 201 ] && [ "$HTTP_STATUS" -ne 422 ]; then
-              log "❌ Failed to create repository (HTTP $HTTP_STATUS)"
-              cat /tmp/repo_create_$$.json >> "$LOG_FILE" 2>/dev/null
-              rm -f /tmp/repo_create_$$.json
-              return 1
-            fi
+              -d "{\"name\":\"$PROJECT_NAME\",\"private\":true}" >/dev/null 2>&1
             
             sleep 2
-            rm -f /tmp/repo_create_$$.json
-            
-            # Navigate to project
-            cd "$PROJECT_PATH" || return 1
-            
-            # Initialize git if needed
-            if [ ! -d ".git" ]; then
-              git init
-              log "  ✅ Git initialized"
-            fi
-            
-            # Add all files
+            cd "$PROJECT_PATH"
+            [ ! -d ".git" ] && git init
             git add -A
-            
-            # Commit if there are changes
-            if git diff --cached --quiet 2>/dev/null; then
-              log "  ℹ️  No changes to commit"
-            else
-              git commit -m "Auto-backup from cloud workstation - $(date '+%Y-%m-%d %H:%M')" 2>/dev/null
-              log "  ✅ Changes committed"
-            fi
-            
-            # Ensure main branch
-            git branch -M main 2>/dev/null
-            
-            # Add or update remote
+            git commit -m "Auto-backup - $(date '+%Y-%m-%d %H:%M')" 2>/dev/null
+            git branch -M main
             git remote remove origin 2>/dev/null
             git remote add origin "https://x-access-token:$TOKEN@github.com/$GITHUB_USER/$PROJECT_NAME.git"
             
-            # Push
             if git push -u origin main --force 2>/dev/null; then
-              log "✅ Pushed to GitHub: $PROJECT_NAME"
-              mark_as_backed_up "$PROJECT_NAME"
-              
-              # Update backup index (with file locking)
-              (
-                flock 200
-                
-                rm -rf /tmp/backup-index-update-$$
-                
-                if git clone --depth=1 "https://x-access-token:$TOKEN@github.com/$GITHUB_USER/$BACKUP_REPO.git" /tmp/backup-index-update-$$ 2>/dev/null; then
-                  cd /tmp/backup-index-update-$$
-                  
-                  # Add to index if not already present
-                  if ! grep -q "$GITHUB_USER/$PROJECT_NAME" README.md 2>/dev/null; then
-                    echo "- $GITHUB_USER/$PROJECT_NAME" >> README.md
-                    git add README.md
-                    git commit -m "Add $PROJECT_NAME to backup index" 2>/dev/null
-                    git push 2>/dev/null
-                    log "✅ Updated backup index"
-                  fi
-                  
-                  cd ~
-                  rm -rf /tmp/backup-index-update-$$
-                fi
-              ) 200>$LOCK_FILE
-              
+              log "✅ Project pushed: $PROJECT_NAME"
+              echo "$TRACKED_KEY" >> "$TRACKED_FILE"
+              update_backup_index "project" "$GITHUB_USER/$PROJECT_NAME"
+            fi
+          }
+          
+          # Backup OpenClaw files
+          backup_openclaw() {
+            log "📤 Backing up OpenClaw files..."
+            
+            local BACKUP_TMP="/tmp/openclaw-backup-$$"
+            rm -rf "$BACKUP_TMP"
+            mkdir -p "$BACKUP_TMP/openclaw/config"
+            mkdir -p "$BACKUP_TMP/openclaw/memory"
+            mkdir -p "$BACKUP_TMP/openclaw/skills"
+            
+            # Copy config
+            cp "$OPENCLAW_DIR/openclaw.json" "$BACKUP_TMP/openclaw/config/" 2>/dev/null || true
+            
+            # Copy workspace files
+            for file in MEMORY.md USER.md SOUL.md AGENTS.md TOOLS.md IDENTITY.md HEARTBEAT.md BOOTSTRAP.md; do
+              cp "$OPENCLAW_DIR/workspace/$file" "$BACKUP_TMP/openclaw/" 2>/dev/null || true
+            done
+            
+            # Copy memory directory
+            cp -r "$OPENCLAW_DIR/memory/"* "$BACKUP_TMP/openclaw/memory/" 2>/dev/null || true
+            
+            # Copy skills
+            cp -r "$OPENCLAW_DIR/skills" "$BACKUP_TMP/openclaw/" 2>/dev/null || true
+            
+            # Create README
+            cat > "$BACKUP_TMP/README.md" << EOFREADME
+          # OpenClaw Cloud Workstation Backup
+          
+          Auto-generated: $(date '+%Y-%m-%d %H:%M:%S')
+          
+          ## Structure
+          - openclaw/config/ - OpenClaw configuration
+          - openclaw/memory/ - Memory files
+          - openclaw/skills/ - Custom skills
+          EOFREADME
+            
+            # Push to backup repo
+            cd "$BACKUP_TMP"
+            git init
+            git add -A
+            git commit -m "OpenClaw backup - $(date '+%Y-%m-%d %H:%M')" 2>/dev/null
+            git branch -M main
+            
+            # Clone existing backup and update
+            if git clone --depth=1 "https://x-access-token:$TOKEN@github.com/$GITHUB_USER/$BACKUP_REPO.git" /tmp/existing-backup 2>/dev/null; then
+              cp -r "$BACKUP_TMP/openclaw" /tmp/existing-backup/ 2>/dev/null || true
+              cd /tmp/existing-backup
+              git add -A
+              git commit -m "OpenClaw backup - $(date '+%Y-%m-%d %H:%M')" 2>/dev/null
+              git push --force 2>/dev/null || true
+              cd ~
+              rm -rf /tmp/existing-backup
             else
-              log "❌ Failed to push: $PROJECT_NAME"
-              return 1
+              git remote add origin "https://x-access-token:$TOKEN@github.com/$GITHUB_USER/$BACKUP_REPO.git"
+              git push -u origin main --force 2>/dev/null || true
             fi
             
-            return 0
+            cd ~
+            rm -rf "$BACKUP_TMP"
+            log "✅ OpenClaw files backed up"
           }
           
-          process_new_project() {
-            local PROJECT_PATH="$1"
-            local PROJECT_NAME=$(basename "$PROJECT_PATH")
+          update_backup_index() {
+            local TYPE="$1"
+            local ITEM="$2"
+            local INDEX_URL="https://x-access-token:$TOKEN@github.com/$GITHUB_USER/$BACKUP_REPO.git"
             
-            log "📁 Detected new project: $PROJECT_NAME"
-            
-            # Wait for project to stabilize (files being copied)
-            sleep 10
-            
-            backup_project "$PROJECT_PATH"
+            if git clone --depth=1 "$INDEX_URL" /tmp/index-update-$$ 2>/dev/null; then
+              cd /tmp/index-update-$$
+              if ! grep -q "$ITEM" README.md 2>/dev/null; then
+                echo "- $ITEM" >> README.md
+                git add README.md
+                git commit -m "Add $TYPE: $(basename $ITEM)" 2>/dev/null
+                git push 2>/dev/null || true
+              fi
+              cd ~
+              rm -rf /tmp/index-update-$$
+            fi
           }
-          
-          periodic_scan() {
-            while true; do
-              sleep $SCAN_INTERVAL
-              
-              log "🔍 Running periodic scan..."
-              
-              # Scan all directories in workspace
-              for dir in "$WATCH_DIR"/*/; do
-                [ -d "$dir" ] || continue
-                
-                PROJECT_NAME=$(basename "$dir")
-                
-                # Skip already tracked
-                if is_already_backed_up "$PROJECT_NAME"; then
-                  continue
-                fi
-                
-                log "🔍 Found untracked project: $PROJECT_NAME"
-                backup_project "$dir"
-              done
-              
-              log "🔍 Periodic scan complete"
-            done
-          }
-          
-          # Export functions for subshells
-          export -f backup_project
-          export -f process_new_project
-          export -f log
-          export -f is_already_backed_up
-          export -f mark_as_backed_up
-          export WATCH_DIR GITHUB_USER BACKUP_REPO TOKEN LOCK_FILE LOG_FILE TRACKED_FILE
           
           # ═══════════════════════════════════════════════════════════════════
           # MAIN EXECUTION
           # ═══════════════════════════════════════════════════════════════════
           
           log "═══════════════════════════════════════════════════════════════"
-          log "👁️  BACKUP WATCHER v2.0 STARTED"
-          log "   📂 Watching: $WATCH_DIR"
-          log "   👤 GitHub User: $GITHUB_USER"
-          log "   🔄 Scan Interval: ${SCAN_INTERVAL}s"
+          log "👁️  BACKUP WATCHER v3.0 STARTED"
+          log "   📂 Projects: $PROJECTS_DIR"
+          log "   🤖 OpenClaw: $OPENCLAW_DIR"
           log "═══════════════════════════════════════════════════════════════"
           
-          # Initial scan for existing projects
-          log "🔍 Running initial scan for existing projects..."
-          for dir in "$WATCH_DIR"/*/; do
-            [ -d "$dir" ] || continue
-            backup_project "$dir"
+          # Initial scan
+          for dir in "$PROJECTS_DIR"/*/; do
+            [ -d "$dir" ] && backup_project "$dir"
           done
-          log "🔍 Initial scan complete"
+          backup_openclaw
           
-          # Start periodic scanner in background
-          periodic_scan &
-          SCANNER_PID=$!
-          log "🔄 Periodic scanner started (PID: $SCANNER_PID)"
-          
-          # Start real-time watcher
-          log "👁️  Starting real-time file watcher..."
-          inotifywait -m -e create -e moved_to --format '%w%f' "$WATCH_DIR" 2>/dev/null | while read NEW_PATH; do
-            if [ -d "$NEW_PATH" ]; then
-              process_new_project "$NEW_PATH" &
-            fi
+          # Periodic scan loop
+          while true; do
+            sleep $SCAN_INTERVAL
+            log "🔍 Periodic scan..."
+            
+            for dir in "$PROJECTS_DIR"/*/; do
+              [ -d "$dir" ] && backup_project "$dir"
+            done
+            
+            backup_openclaw
+            log "🔍 Periodic scan complete"
           done
           EOFWATCHER
           
-          # Inject actual values
+          # Inject token
           sed -i "s|TOKEN_PLACEHOLDER|${TOKEN}|g" ~/backup-watcher.sh
-          sed -i "s|GITHUB_USER_PLACEHOLDER|${GITHUB_ACTOR}|g" ~/backup-watcher.sh
           chmod +x ~/backup-watcher.sh
           
-          # Start watcher service
+          # Start watcher
           nohup bash ~/backup-watcher.sh > /dev/null 2>&1 &
           WATCHER_PID=$!
           
-          # Wait a moment and verify
           sleep 3
           if pgrep -f "backup-watcher.sh" > /dev/null; then
-            echo "✅ Backup watcher v2.0 deployed (PID: $WATCHER_PID)"
-            echo "📋 Features:"
-            echo "   • Real-time detection via inotifywait"
-            echo "   • Periodic scan every 5 minutes"
-            echo "   • Automatic initial scan on startup"
-            echo "   • Better duplicate handling"
+            echo "✅ Backup watcher v3.0 deployed (PID: $WATCHER_PID)"
+            echo "   📂 Watching: Projects + OpenClaw"
           else
             echo "❌ Watcher failed to start"
             cat ~/backup-watcher.log
           fi
 
+      # ============================================================
+      # PHASE 6: FINAL INFO
+      # ============================================================
+      
       - name: 💡 Keep Alive & Connection Info
         run: |
           CLOUDFLARE_HOST=$(cat /tmp/cf_host.txt 2>/dev/null || echo "")
+          OLLAMA_URL=$(cat /tmp/ollama_connect_url.txt 2>/dev/null || echo "")
           
           echo ""
-          echo "╔════════════════════════════════════════════════════════════╗"
-          echo "║                                                            ║"
-          echo "║    🚀 LINUX CLOUD WORKSTATION READY  🚀                    ║"
-          echo "║              (With Improved Backup v2.0)                   ║"
-          echo "║                                                            ║"
-          echo "╚════════════════════════════════════════════════════════════╝"
+          echo "╔════════════════════════════════════════════════════════════════════╗"
+          echo "║                                                                    ║"
+          echo "║       🚀 LINUX CLOUD WORKSTATION + OPENCLAW READY  🚀            ║"
+          echo "║                                                                    ║"
+          echo "╚════════════════════════════════════════════════════════════════════╝"
           echo ""
           
+          # VNC Connection
           if [ -n "$CLOUDFLARE_HOST" ]; then
-            echo "┌────────────────────────────────────────────────────────────┐"
-            echo "│ STEP 1: Run on your LOCAL machine                          │"
-            echo "└────────────────────────────────────────────────────────────┘"
-            echo ""
-            echo "cloudflared access tcp --hostname $CLOUDFLARE_HOST --url 127.0.0.1:${{ env.VNC_PORT }}"
-            echo ""
-            echo "┌────────────────────────────────────────────────────────────┐"
-            echo "│ 🖥️  STEP 2: Connect with VNC Viewer                         │"
-            echo "└────────────────────────────────────────────────────────────┘"
-            echo ""
-            echo "  Server:   localhost:${{ env.VNC_PORT }}"
+            echo "┌────────────────────────────────────────────────────────────────────┐"
+            echo "│ 🖥️  VNC CONNECTION                                                 │"
+            echo "├────────────────────────────────────────────────────────────────────┤"
+            echo "│                                                                    │"
+            echo "│ STEP 1: Run on your LOCAL machine:                                │"
+            echo "│   cloudflared access tcp --hostname $CLOUDFLARE_HOST --url 127.0.0.1:5902"
+            echo "│                                                                    │"
+            echo "│ STEP 2: Connect VNC Viewer to:                                     │"
+            echo "│   Server: localhost:5902                                          │"
             if [ -n "${{ secrets.VNC_PASSWORD }}" ]; then
-              echo "  Password: [Your VNC_PASSWORD secret]"
+              echo "│   Password: [Your VNC_PASSWORD secret]                            │"
             else
-              echo "  Password: P@ssw0rd123!"
+              echo "│   Password: P@ssw0rd123!                                           │"
             fi
+            echo "│                                                                    │"
+            echo "└────────────────────────────────────────────────────────────────────┘"
             echo ""
-          else
-            echo "⚠️  Cloudflare tunnel still initializing..."
-            echo "    Check 'Setup Cloudflare Tunnel' step above"
           fi
           
+          # Ollama Connection
+          if [ -n "$OLLAMA_URL" ]; then
+            echo "┌────────────────────────────────────────────────────────────────────┐"
+            echo "│ 🔗 OLLAMA CLOUD CONNECT                                            │"
+            echo "├────────────────────────────────────────────────────────────────────┤"
+            echo "│                                                                    │"
+            echo "│   $OLLAMA_URL"
+            echo "│                                                                    │"
+            echo "│   ⚠️  Open this URL in YOUR browser to connect!                   │"
+            echo "│                                                                    │"
+            echo "└────────────────────────────────────────────────────────────────────┘"
+            echo ""
+          fi
+          
+          # Telegram Bot
+          echo "┌────────────────────────────────────────────────────────────────────┐"
+          echo "│ 🤖 TELEGRAM BOT                                                    │"
+          echo "├────────────────────────────────────────────────────────────────────┤"
+          echo "│                                                                    │"
+          echo "│   Bot: @UnQChat                                                    │"
+          echo "│   Start: https://t.me/UnQChat                                      │"
+          echo "│                                                                    │"
+          echo "└────────────────────────────────────────────────────────────────────┘"
           echo ""
+          
+          # OpenClaw Backup
+          echo "┌────────────────────────────────────────────────────────────────────┐"
+          echo "│ 📂 OPENCLAW BACKUP                                                 │"
+          echo "├────────────────────────────────────────────────────────────────────┤"
+          echo "│                                                                    │"
+          echo "│   Repo: ${GITHUB_ACTOR}/openclaw-backup (Private)                │"
+          echo "│   Files: MEMORY.md, USER.md, SOUL.md, openclaw.json, etc.          │"
+          echo "│   Auto-backup: Every 5 min + Real-time                            │"
+          echo "│                                                                    │"
+          echo "└────────────────────────────────────────────────────────────────────┘"
+          echo ""
+          
+          # Environment Details
           echo "📊 Environment Details:"
           echo "  🖥️  OS:          Ubuntu Linux"
           echo "  🖥️  Desktop:     XFCE4"
           echo "  👤 User:        ${USER}"
           echo "  📂 Workspace:   ~/Desktop/workspace"
+          echo "  🤖 OpenClaw:    ~/.openclaw"
           echo "  ⏱️  Duration:    6 hours"
-          echo "  🔄 Backup:      Auto-sync v2.0"
+          echo "  🔄 Backup:      Auto-sync v3.0"
           echo ""
           
-          # Health monitoring loop
+          # Keep alive loop
           RESTART_COUNT=0
           MAX_RESTARTS=5
           
           while true; do
             sleep 1800
+            
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] 💓 Heartbeat"
             
             # VNC health check
             if ! pgrep -f "Xtigervnc.*${{ env.VNC_DISPLAY }}" > /dev/null; then
@@ -681,12 +920,15 @@ jobs:
                   -alwaysshared
                 
                 sleep 5
-                
-                if pgrep -f "Xtigervnc.*${{ env.VNC_DISPLAY }}" > /dev/null; then
-                  ((RESTART_COUNT++))
-                  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ VNC restarted (attempt $RESTART_COUNT/$MAX_RESTARTS)"
-                fi
+                ((RESTART_COUNT++))
               fi
+            fi
+            
+            # OpenClaw health check
+            if ! pgrep -f "openclaw" > /dev/null; then
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔄 Restarting OpenClaw..."
+              cd ${{ env.OPENCLAW_DIR }}
+              nohup openclaw gateway start > /tmp/openclaw.log 2>&1 &
             fi
             
             # Backup watcher health check
