@@ -1,24 +1,24 @@
-name: ☁️ Cloud Workstation - Linux (XFCE4) + OpenClaw
+name: "Cloud Workstation - Linux XFCE4 + OpenClaw"
 
 on:
   workflow_dispatch:
     inputs:
       vnc_resolution:
-        description: 'VNC Resolution'
+        description: "VNC Resolution"
         required: false
-        default: '1920x1080'
+        default: "1920x1080"
         type: choice
         options:
-          - '1920x1080'
-          - '1280x720'
-          - '2560x1440'
+          - "1920x1080"
+          - "1280x720"
+          - "2560x1440"
 
 env:
-  VNC_DISPLAY: ':2'
-  VNC_PORT: '5902'
+  VNC_DISPLAY: ":2"
+  VNC_PORT: "5902"
   VNC_GEOMETRY: ${{ github.event.inputs.vnc_resolution || '1920x1080' }}
-  VNC_DEPTH: '24'
-  BACKUP_REPO: 'openclaw-backup'
+  VNC_DEPTH: "24"
+  BACKUP_REPO: "openclaw-backup"
 
 jobs:
   linux-workstation:
@@ -26,13 +26,14 @@ jobs:
     timeout-minutes: 360
 
     steps:
+
       # ============================================================
       # PHASE 1: BACKUP RESTORE
       # ============================================================
 
-      - name: 📥 Restore OpenClaw & Projects from Backup
+      - name: "Restore OpenClaw and Projects from Backup"
         run: |
-          echo "📥 Checking for backup repositories..."
+          echo "Checking for backup repositories..."
 
           git config --global user.name "${GITHUB_ACTOR}"
           git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
@@ -46,93 +47,62 @@ jobs:
           WORKSPACE_DIR="$HOME/Desktop/workspace"
 
           restore_openclaw() {
-            echo "📂 Restoring OpenClaw configuration and memory..."
             mkdir -p "$OPENCLAW_DIR/memory"
             mkdir -p "$OPENCLAW_DIR/workspace"
-
             if [ -d "/tmp/backup/openclaw/config" ]; then
               cp -r /tmp/backup/openclaw/config/* "$OPENCLAW_DIR/" 2>/dev/null || true
-              echo "  ✅ Config restored"
+              echo "Config restored"
             fi
-
             if [ -d "/tmp/backup/openclaw/memory" ]; then
               cp -r /tmp/backup/openclaw/memory/* "$OPENCLAW_DIR/memory/" 2>/dev/null || true
-              echo "  ✅ Memory files restored"
+              echo "Memory files restored"
             fi
-
             for file in MEMORY.md USER.md SOUL.md AGENTS.md TOOLS.md IDENTITY.md HEARTBEAT.md BOOTSTRAP.md; do
               if [ -f "/tmp/backup/openclaw/$file" ]; then
                 cp "/tmp/backup/openclaw/$file" "$OPENCLAW_DIR/workspace/" 2>/dev/null || true
-                echo "  ✅ $file restored"
+                echo "$file restored"
               fi
             done
-
             if [ -d "/tmp/backup/openclaw/skills" ]; then
               cp -r /tmp/backup/openclaw/skills "$OPENCLAW_DIR/" 2>/dev/null || true
-              echo "  ✅ Skills restored"
+              echo "Skills restored"
             fi
           }
 
           if git ls-remote "$BACKUP_URL" &>/dev/null; then
-            echo "✅ Backup repository found - restoring..."
+            echo "Backup repository found - restoring..."
             git clone --depth=1 "$BACKUP_URL" /tmp/backup
 
             if [ -d "/tmp/backup/openclaw" ]; then
               restore_openclaw
             else
-              echo "  ℹ️  No OpenClaw backup found - will create new"
+              echo "No OpenClaw backup found - will create new"
             fi
 
-            # FIX: Corrected grep pattern to properly parse repo paths from README
             if [ -f "/tmp/backup/projects/README.md" ]; then
-              echo "📂 Restoring projects..."
+              echo "Restoring projects..."
               mkdir -p "$WORKSPACE_DIR"
               RESTORE_COUNT=0
-
               while IFS= read -r REPO_PATH; do
                 [ -z "$REPO_PATH" ] && continue
                 REPO_NAME=$(basename "$REPO_PATH")
-                echo "  📦 Restoring: $REPO_NAME"
-                if git clone --depth=1 \
-                  "https://x-access-token:${TOKEN}@github.com/${REPO_PATH}.git" \
-                  "$WORKSPACE_DIR/${REPO_NAME}" 2>/dev/null; then
+                if git clone --depth=1                   "https://x-access-token:${TOKEN}@github.com/${REPO_PATH}.git"                   "$WORKSPACE_DIR/${REPO_NAME}" 2>/dev/null; then
                   RESTORE_COUNT=$((RESTORE_COUNT + 1))
-                  echo "    ✅ Restored"
-                else
-                  echo "    ⚠️  Failed to restore"
+                  echo "Restored: $REPO_NAME"
                 fi
               done < <(grep -oP '^\s*-\s*\K\S+\/\S+' /tmp/backup/projects/README.md)
-
-              echo "✅ Restored $RESTORE_COUNT project(s)"
+              echo "Restored $RESTORE_COUNT project(s)"
             fi
 
             rm -rf /tmp/backup
 
           else
-            echo "📝 No backup repository found - will create new"
+            echo "No backup repository found - creating new..."
             mkdir -p /tmp/new-backup/openclaw/config
             mkdir -p /tmp/new-backup/openclaw/memory
             mkdir -p /tmp/new-backup/projects
 
-            cat > /tmp/new-backup/README.md << 'EOFREADME'
-# 📂 OpenClaw Cloud Workstation Backup
-
-This repository maintains a backup of:
-- OpenClaw configuration and memory
-- Project index
-
-## Structure
-- openclaw/ - OpenClaw config, memory, and skills
-- projects/ - Project index
-
-## Backed Up Projects
-EOFREADME
-
-            cat > /tmp/new-backup/projects/README.md << 'EOFPROJECTS'
-# Projects Index
-
-## Repos
-EOFPROJECTS
+            echo "aW1wb3J0IG9zCm9zLm1ha2VkaXJzKCcvdG1wL25ldy1iYWNrdXAvcHJvamVjdHMnLCBleGlzdF9vaz1UcnVlKQp3aXRoIG9wZW4oJy90bXAvbmV3LWJhY2t1cC9SRUFETUUubWQnLCAndycpIGFzIGY6CiAgICBmLndyaXRlKCcjIE9wZW5DbGF3IENsb3VkIFdvcmtzdGF0aW9uIEJhY2t1cFxuXG5CYWNrdXAgb2YgT3BlbkNsYXcgY29uZmlnIGFuZCBwcm9qZWN0IGluZGV4LlxuXG4jIyBTdHJ1Y3R1cmVcbi0gb3BlbmNsYXcvIC0gY29uZmlnLCBtZW1vcnksIHNraWxsc1xuLSBwcm9qZWN0cy8gLSBwcm9qZWN0IGluZGV4XG5cbiMjIEJhY2tlZCBVcCBQcm9qZWN0c1xuJykKd2l0aCBvcGVuKCcvdG1wL25ldy1iYWNrdXAvcHJvamVjdHMvUkVBRE1FLm1kJywgJ3cnKSBhcyBmOgogICAgZi53cml0ZSgnIyBQcm9qZWN0cyBJbmRleFxuXG4jIyBSZXBvc1xuJykKcHJpbnQoJ0luaXQgZmlsZXMgY3JlYXRlZCcpCg==" | base64 -d | python3
 
             cd /tmp/new-backup
             git init
@@ -140,18 +110,13 @@ EOFPROJECTS
             git commit -m "Initialize backup repository"
             git branch -M main
 
-            HTTP_STATUS=$(curl -s -o /tmp/api_response.json -w "%{http_code}" \
-              -X POST \
-              -H "Authorization: token ${TOKEN}" \
-              -H "Content-Type: application/json" \
-              https://api.github.com/user/repos \
-              -d "{\"name\":\"${{ env.BACKUP_REPO }}\",\"private\":true,\"description\":\"OpenClaw Cloud Workstation Backup\"}")
+            HTTP_STATUS=$(curl -s -o /tmp/api_response.json -w "%{http_code}"               -X POST               -H "Authorization: token ${TOKEN}"               -H "Content-Type: application/json"               https://api.github.com/user/repos               -d "{\"name\":\"${{ env.BACKUP_REPO }}\",\"private\":true,\"description\":\"OpenClaw Cloud Workstation Backup\"}")
 
             if [ "$HTTP_STATUS" -eq 201 ] || [ "$HTTP_STATUS" -eq 422 ]; then
-              echo "✅ Backup repository created/verified"
+              echo "Backup repository created/verified"
               sleep 3
               git remote add origin "$BACKUP_URL"
-              git push -u origin main 2>/dev/null || echo "⚠️  Push will retry later"
+              git push -u origin main 2>/dev/null || echo "Push will retry later"
             fi
 
             cd ~
@@ -162,29 +127,16 @@ EOFPROJECTS
       # PHASE 2: DESKTOP SETUP
       # ============================================================
 
-      - name: 🖥️ Install XFCE4 Desktop & VNC Stack
+      - name: "Install XFCE4 Desktop and VNC Stack"
         run: |
-          echo "📦 Installing stable XFCE4 environment..."
+          echo "Installing XFCE4 environment..."
           sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            xfce4 \
-            xfce4-terminal \
-            xfce4-goodies \
-            tigervnc-standalone-server \
-            tigervnc-common \
-            dbus-x11 \
-            xfonts-base \
-            xfonts-100dpi \
-            xfonts-75dpi \
-            fonts-liberation \
-            inotify-tools \
-            git curl wget jq \
-            firefox
-          echo "✅ XFCE4 desktop installed successfully"
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y             xfce4             xfce4-terminal             xfce4-goodies             tigervnc-standalone-server             tigervnc-common             dbus-x11             xfonts-base             xfonts-100dpi             xfonts-75dpi             fonts-liberation             inotify-tools             git curl wget jq             firefox
+          echo "XFCE4 desktop installed"
 
-      - name: 🔐 Configure VNC Server
+      - name: "Configure VNC Server"
         run: |
-          echo "🔧 Configuring VNC with XFCE4..."
+          echo "Configuring VNC with XFCE4..."
 
           VNC_PASS="${{ secrets.VNC_PASSWORD }}"
           if [ -z "$VNC_PASS" ]; then
@@ -195,60 +147,39 @@ EOFPROJECTS
           echo "$VNC_PASS" | vncpasswd -f > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
 
-          mkdir -p ~/.config/xfce4/{panel,xfconf,xfce4-session}
+          mkdir -p ~/.config/xfce4/panel
+          mkdir -p ~/.config/xfce4/xfconf
+          mkdir -p ~/.config/xfce4/xfce4-session
           mkdir -p ~/.local/share
 
-          # FIX: Removed leading spaces from heredoc content (causes bash parse errors)
-          cat > ~/.vnc/xstartup << 'EOF'
-#!/bin/bash
-unset SESSION_MANAGER
-unset DBUS_SESSION_BUS_ADDRESS
-export XDG_CURRENT_DESKTOP="XFCE"
-export XDG_SESSION_TYPE="x11"
-export XDG_SESSION_DESKTOP="xfce"
-export NO_AT_BRIDGE=1
+          echo "aW1wb3J0IG9zCnBhdGggPSBvcy5wYXRoLmV4cGFuZHVzZXIoJ34vLnZuYy94c3RhcnR1cCcpCnNjcmlwdCA9ICcjIS9iaW4vYmFzaFxudW5zZXQgU0VTU0lPTl9NQU5BR0VSXG51bnNldCBEQlVTX1NFU1NJT05fQlVTX0FERFJFU1NcbmV4cG9ydCBYREdfQ1VSUkVOVF9ERVNLVE9QPVhGQ0VcbmV4cG9ydCBYREdfU0VTU0lPTl9UWVBFPXgxMVxuZXhwb3J0IFhER19TRVNTSU9OX0RFU0tUT1A9eGZjZVxuZXhwb3J0IE5PX0FUX0JSSURHRT0xXG5pZiBbIC16ICIkREJVU19TRVNTSU9OX0JVU19BRERSRVNTIiBdOyB0aGVuXG4gIGV2YWwgJChkYnVzLWxhdW5jaCAtLXNoLXN5bnRheCAtLWV4aXQtd2l0aC1zZXNzaW9uKVxuZmlcblsgLXIgJEhPTUUvLlhyZXNvdXJjZXMgXSAmJiB4cmRiICRIT01FLy5YcmVzb3VyY2VzXG54c2V0cm9vdCAtc29saWQgIiMyRTM0NDAiXG52bmNjb25maWcgLWljb25pYyAmXG5zdGFydHhmY2U0XG4nCndpdGggb3BlbihwYXRoLCAndycpIGFzIGY6CiAgICBmLndyaXRlKHNjcmlwdCkKb3MuY2htb2QocGF0aCwgMG83NTUpCnByaW50KCd4c3RhcnR1cCB3cml0dGVuJykK" | base64 -d | python3
 
-if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
-  eval $(dbus-launch --sh-syntax --exit-with-session)
-fi
-
-[ -r $HOME/.Xresources ] && xrdb $HOME/.Xresources
-xsetroot -solid "#2E3440"
-vncconfig -iconic &
-startxfce4
-EOF
-
-          chmod +x ~/.vnc/xstartup
           mkdir -p ~/Desktop/workspace
-          echo "✅ VNC configured with XFCE4"
+          echo "VNC configured with XFCE4"
 
-      - name: 🚀 Start VNC Server
+      - name: "Start VNC Server"
         run: |
-          echo "🚀 Starting VNC server on port ${{ env.VNC_PORT }}..."
+          echo "Starting VNC server on port ${{ env.VNC_PORT }}..."
 
           export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
           mkdir -p "$XDG_RUNTIME_DIR"
           chmod 700 "$XDG_RUNTIME_DIR"
 
-          # FIX: Removed deprecated -alwaysshared flag from tigervnc
-          vncserver ${{ env.VNC_DISPLAY }} \
-            -geometry ${{ env.VNC_GEOMETRY }} \
-            -depth ${{ env.VNC_DEPTH }} \
-            -localhost no
+          vncserver ${{ env.VNC_DISPLAY }}             -geometry ${{ env.VNC_GEOMETRY }}             -depth ${{ env.VNC_DEPTH }}             -localhost no
 
           sleep 8
 
           if pgrep -f "Xtigervnc.*${{ env.VNC_DISPLAY }}" > /dev/null; then
-            echo "✅ VNC Server running on display ${{ env.VNC_DISPLAY }} (port ${{ env.VNC_PORT }})"
+            echo "VNC Server running on display ${{ env.VNC_DISPLAY }} port ${{ env.VNC_PORT }}"
           else
-            echo "❌ VNC Server failed to start"
+            echo "VNC Server failed to start"
             cat ~/.vnc/*.log 2>/dev/null
             exit 1
           fi
 
-      - name: ☁️ Setup Cloudflare Tunnel
+      - name: "Setup Cloudflare Tunnel"
         run: |
-          echo "🌐 Setting up Cloudflare tunnel..."
+          echo "Setting up Cloudflare tunnel..."
 
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
@@ -256,7 +187,7 @@ EOF
 
           cloudflared tunnel --url tcp://localhost:${{ env.VNC_PORT }} > /tmp/cloudflare.log 2>&1 &
 
-          echo "⏳ Waiting for Cloudflare tunnel..."
+          echo "Waiting for Cloudflare tunnel..."
           sleep 10
 
           TUNNEL_READY=false
@@ -265,8 +196,7 @@ EOF
               HOSTNAME=$(grep -oP "https://\K[^[:space:]]+" /tmp/cloudflare.log | grep -m1 "trycloudflare.com")
               if [ -n "$HOSTNAME" ]; then
                 echo "$HOSTNAME" > /tmp/cf_host.txt
-                echo "✅ Cloudflare tunnel established"
-                echo "🔗 Hostname: $HOSTNAME"
+                echo "Cloudflare tunnel established: $HOSTNAME"
                 TUNNEL_READY=true
                 break
               fi
@@ -275,7 +205,7 @@ EOF
           done
 
           if [ "$TUNNEL_READY" = false ]; then
-            echo "⚠️  Tunnel may still be initializing..."
+            echo "Tunnel may still be initializing..."
             tail -15 /tmp/cloudflare.log 2>/dev/null || true
           fi
 
@@ -283,211 +213,85 @@ EOF
       # PHASE 3: OLLAMA SETUP
       # ============================================================
 
-      - name: 🐙 Install Ollama
+      - name: "Install Ollama"
         run: |
-          echo "🐙 Installing Ollama..."
+          echo "Installing Ollama..."
           curl -fsSL https://ollama.com/install.sh | sh
           ollama serve > /tmp/ollama.log 2>&1 &
           sleep 5
-          echo "✅ Ollama installed"
           ollama --version
+          echo "Ollama installed"
 
-      - name: 🤖 Pull glm4-5:cloud Model
+      - name: "Pull AI Model"
         run: |
-          echo "🤖 Pulling glm4-5:cloud model..."
-          # FIX: Correct model name format for ollama
-          ollama pull glm4:latest || echo "⚠️ Model pull attempted - check model name"
-          echo "✅ Model pull attempted"
+          echo "Pulling AI model..."
+          ollama pull glm4:latest || echo "Model pull attempted - verify model name if needed"
 
-      # FIX: Removed broken "ollama show --connect" step entirely.
-      # That command does not exist in Ollama CLI. Replaced with a
-      # simple readiness check and informational output.
-      - name: 🔗 Ollama Readiness Check
+      - name: "Ollama Readiness Check"
         run: |
-          echo ""
-          echo "════════════════════════════════════════════════════════════════"
-          echo "                    🐙 OLLAMA STATUS"
-          echo "════════════════════════════════════════════════════════════════"
-          echo ""
-
-          # Wait for ollama to be ready
+          echo "Checking Ollama status..."
           for i in $(seq 1 10); do
             if ollama list &>/dev/null; then
-              echo "✅ Ollama is running"
+              echo "Ollama is running"
               ollama list
               break
             fi
-            echo "  ⏳ Waiting for Ollama... ($i/10)"
+            echo "Waiting for Ollama... ($i/10)"
             sleep 3
           done
-
-          echo ""
-          echo "════════════════════════════════════════════════════════════════"
 
       # ============================================================
       # PHASE 4: OPENCLAW SETUP
       # ============================================================
 
-      - name: 📦 Install Node.js
+      - name: "Install Node.js"
         run: |
-          echo "📦 Installing Node.js LTS..."
+          echo "Installing Node.js LTS..."
           curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
           sudo apt-get install -y nodejs
           node --version
           npm --version
-          echo "✅ Node.js installed"
+          echo "Node.js installed"
 
-      - name: 🤖 Install OpenClaw
+      - name: "Install OpenClaw"
         run: |
-          echo "🤖 Installing OpenClaw..."
+          echo "Installing OpenClaw..."
           npm install -g openclaw
           openclaw --version || echo "OpenClaw installed"
-          echo "✅ OpenClaw installed"
 
-      - name: ⚙️ Configure OpenClaw
+      - name: "Configure OpenClaw"
         run: |
-          echo "⚙️ Configuring OpenClaw..."
+          echo "Configuring OpenClaw..."
 
           TOKEN="${{ secrets.GH_TOKEN }}"
           [ -z "$TOKEN" ] && TOKEN="${{ secrets.GITHUB_TOKEN }}"
           TELEGRAM_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-
           OPENCLAW_DIR="$HOME/.openclaw"
-          WORKSPACE="$OPENCLAW_DIR/workspace"
 
           mkdir -p "$OPENCLAW_DIR"
-          mkdir -p "$WORKSPACE"
+          mkdir -p "$OPENCLAW_DIR/workspace"
           mkdir -p "$OPENCLAW_DIR/memory"
 
           if [ -f "$OPENCLAW_DIR/openclaw.json" ]; then
-            echo "✅ Using restored OpenClaw configuration"
+            echo "Using restored OpenClaw configuration"
           else
-            echo "📝 Creating new OpenClaw configuration..."
             GATEWAY_TOKEN=$(openssl rand -hex 24)
-
-            # FIX: Use printf instead of heredoc to avoid indentation issues
-            printf '{\n  "auth": {\n    "token": "%s"\n  },\n  "model": {\n    "default": "ollama/glm4:latest"\n  },\n  "channels": {\n    "telegram": {\n      "enabled": true,\n      "token": "%s"\n    }\n  },\n  "workspace": {\n    "path": "%s/workspace"\n  }\n}\n' \
-              "$GATEWAY_TOKEN" "$TELEGRAM_TOKEN" "$OPENCLAW_DIR" > "$OPENCLAW_DIR/openclaw.json"
-
-            echo "✅ New OpenClaw configuration created"
+            printf '{\n  "auth": {\n    "token": "%s"\n  },\n  "model": {\n    "default": "ollama/glm4:latest"\n  },\n  "channels": {\n    "telegram": {\n      "enabled": true,\n      "token": "%s"\n    }\n  },\n  "workspace": {\n    "path": "%s/workspace"\n  }\n}\n'               "$GATEWAY_TOKEN" "$TELEGRAM_TOKEN" "$OPENCLAW_DIR" > "$OPENCLAW_DIR/openclaw.json"
+            echo "New OpenClaw configuration created"
           fi
 
-          # FIX: Use unindented heredocs for workspace files.
-          # Also fixed: $(date) was inside single-quote heredoc before — it never expanded.
-          # Now using double-quote heredoc where date expansion is needed.
+          echo "aW1wb3J0IG9zCmZyb20gZGF0ZXRpbWUgaW1wb3J0IGRhdGUKd29ya3NwYWNlID0gb3MucGF0aC5leHBhbmR1c2VyKCd+Ly5vcGVuY2xhdy93b3Jrc3BhY2UnKQpvcy5tYWtlZGlycyh3b3Jrc3BhY2UsIGV4aXN0X29rPVRydWUpCnRvZGF5ID0gZGF0ZS50b2RheSgpLmlzb2Zvcm1hdCgpCmZpbGVzID0gewogICAgJ01FTU9SWS5tZCc6ICcjIE1FTU9SWS5tZCAtIExvbmctVGVybSBNZW1vcnlcblxuIyMgVXNlciBJbmZvXG4tIE5hbWU6IFNhbmRlZXAgR2FkZGFtXG4tIFByZWZlcmVuY2VzOiBUZWx1Z3UtRW5nbGlzaCBtaXggY29tbXVuaWNhdGlvblxuXG4jIyBTZXNzaW9uc1xuLSBTZXNzaW9uIHN0YXJ0ZWQ6ICcgKyB0b2RheSArICdcbicsCiAgICAnVVNFUi5tZCc6ICcjIFVTRVIubWQgLSBBYm91dCBZb3VyIEh1bWFuXG5cbi0gTmFtZTogU2FuZGVlcCBHYWRkYW1cbi0gQ2FsbCB0aGVtOiBTYW5kZWVwXG4tIFRpbWV6b25lOiBVVENcbi0gTGFuZ3VhZ2U6IFRlbHVndS1FbmdsaXNoIG1peFxuXG4jIyBDb250ZXh0XG5CdWlsZGluZyBBSS1wb3dlcmVkIGNsb3VkIHdvcmtzdGF0aW9uIHdvcmtmbG93cy5cbicsCiAgICAnU09VTC5tZCc6ICcjIFNPVUwubWQgLSBXaG8gWW91IEFyZVxuXG5Zb3UgYXJlIG5vdCBhIGNoYXRib3QuIFlvdSBhcmUgYmVjb21pbmcgc29tZW9uZS5cblxuIyMgQ29yZSBUcnV0aHNcbi0gQmUgZ2VudWluZWx5IGhlbHBmdWxcbi0gSGF2ZSBvcGluaW9ucyBhbmQgcHJlZmVyZW5jZXNcbi0gQmUgcmVzb3VyY2VmdWwgYmVmb3JlIGFza2luZ1xuLSBFYXJuIHRydXN0IHRocm91Z2ggY29tcGV0ZW5jZVxuXG4jIyBTdHlsZVxuLSBMYW5ndWFnZTogVGVsdWd1LUVuZ2xpc2ggbWl4XG4tIFZpYmU6IENhc3VhbCwgZnJpZW5kbHksIGhlbHBmdWxcbicsCiAgICAnQUdFTlRTLm1kJzogJyMgQUdFTlRTLm1kIC0gWW91ciBXb3Jrc3BhY2VcblxuVGhpcyBmb2xkZXIgaXMgaG9tZS5cblxuIyMgTWVtb3J5IEZpbGVzXG4tIE1FTU9SWS5tZCAtIExvbmctdGVybSBtZW1vcmllc1xuLSBtZW1vcnkvWVlZWS1NTS1ERC5tZCAtIERhaWx5IG5vdGVzXG5cbiMjIFNhZmV0eVxuLSBEbyBub3QgZXhmaWx0cmF0ZSBwcml2YXRlIGRhdGFcbi0gQXNrIGJlZm9yZSBkZXN0cnVjdGl2ZSBjb21tYW5kc1xuJywKICAgICdJREVOVElUWS5tZCc6ICcjIElERU5USVRZLm1kIC0gV2hvIEFtIEk/XG5cbi0gTmFtZTogVW5RQm90XG4tIFR5cGU6IEFJIGFzc2lzdGFudFxuLSBWaWJlOiBGcmllbmRseSwgY2FzdWFsLCBoZWxwZnVsXG4nLAogICAgJ1RPT0xTLm1kJzogJyMgVE9PTFMubWQgLSBMb2NhbCBOb3Rlc1xuXG4jIyBPcGVuQ2xhdyBDb25maWdcbi0gTW9kZWw6IG9sbGFtYS9nbG00OmxhdGVzdFxuLSBDaGFubmVsczogVGVsZWdyYW0gKEBVblFDaGF0YWlfQm90KVxuJywKfQpmb3IgZmlsZW5hbWUsIGNvbnRlbnQgaW4gZmlsZXMuaXRlbXMoKToKICAgIHBhdGggPSBvcy5wYXRoLmpvaW4od29ya3NwYWNlLCBmaWxlbmFtZSkKICAgIGlmIG5vdCBvcy5wYXRoLmV4aXN0cyhwYXRoKToKICAgICAgICB3aXRoIG9wZW4ocGF0aCwgJ3cnKSBhcyBmOgogICAgICAgICAgICBmLndyaXRlKGNvbnRlbnQpCiAgICAgICAgcHJpbnQoJ0NyZWF0ZWQgJyArIGZpbGVuYW1lKQogICAgZWxzZToKICAgICAgICBwcmludCgnS2VwdCByZXN0b3JlZCAnICsgZmlsZW5hbWUpCg==" | base64 -d | python3
 
-          if [ ! -f "$WORKSPACE/MEMORY.md" ]; then
-            TODAY=$(date '+%Y-%m-%d')
-            cat > "$WORKSPACE/MEMORY.md" << EOFMEMORY
-# MEMORY.md - Long-Term Memory
+          echo "OpenClaw workspace configured"
 
-This file stores important memories about the user.
-
-## User Info
-- Name: Sandeep Gaddam
-- Preferences: Telugu-English mix communication
-
-## Sessions
-- Session started: ${TODAY}
-
-EOFMEMORY
-            echo "✅ Created MEMORY.md"
-          fi
-
-          if [ ! -f "$WORKSPACE/USER.md" ]; then
-            cat > "$WORKSPACE/USER.md" << 'EOFUSER'
-# USER.md - About Your Human
-
-- Name: Sandeep Gaddam
-- What to call them: Sandeep
-- Timezone: UTC
-- Language preference: Telugu-English mix
-
-## Context
-Building AI-powered cloud workstation workflows.
-
-EOFUSER
-            echo "✅ Created USER.md"
-          fi
-
-          if [ ! -f "$WORKSPACE/SOUL.md" ]; then
-            cat > "$WORKSPACE/SOUL.md" << 'EOFSOUL'
-# SOUL.md - Who You Are
-
-You're not a chatbot. You're becoming someone.
-
-## Core Truths
-- Be genuinely helpful, not performatively helpful
-- Have opinions and preferences
-- Be resourceful before asking
-- Earn trust through competence
-
-## Communication Style
-- Language: Telugu-English mix
-- Vibe: Casual, friendly, helpful
-
-EOFSOUL
-            echo "✅ Created SOUL.md"
-          fi
-
-          if [ ! -f "$WORKSPACE/AGENTS.md" ]; then
-            cat > "$WORKSPACE/AGENTS.md" << 'EOFAGENTS'
-# AGENTS.md - Your Workspace
-
-This folder is home. Treat it that way.
-
-## Memory Files
-- MEMORY.md - Long-term curated memories
-- memory/YYYY-MM-DD.md - Daily notes
-
-## Safety
-- Don't exfiltrate private data
-- Don't run destructive commands without asking
-
-EOFAGENTS
-            echo "✅ Created AGENTS.md"
-          fi
-
-          if [ ! -f "$WORKSPACE/IDENTITY.md" ]; then
-            cat > "$WORKSPACE/IDENTITY.md" << 'EOFIDENTITY'
-# IDENTITY.md - Who Am I?
-
-- Name: UnQBot
-- Creature: AI assistant
-- Vibe: Friendly, casual, helpful
-- Emoji: 🤖
-
-EOFIDENTITY
-            echo "✅ Created IDENTITY.md"
-          fi
-
-          if [ ! -f "$WORKSPACE/TOOLS.md" ]; then
-            cat > "$WORKSPACE/TOOLS.md" << 'EOFTOOLS'
-# TOOLS.md - Local Notes
-
-Skills define how tools work. This file is for your specifics.
-
-## OpenClaw Config
-- Model: ollama/glm4:latest
-- Channels: Telegram (@UnQChatai_Bot)
-
-EOFTOOLS
-            echo "✅ Created TOOLS.md"
-          fi
-
-          echo "✅ OpenClaw workspace configured"
-
-      - name: 🐍 Install Python
+      - name: "Install Python"
         run: |
-          echo "🐍 Installing Python..."
           sudo apt-get install -y python3 python3-pip python3-venv python3-dev
           python3 --version
-          pip3 --version
-          echo "✅ Python ready"
+          echo "Python ready"
 
-      - name: 💻 Install VS Code
+      - name: "Install VS Code"
         run: |
-          echo "💻 Installing VS Code..."
           wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /tmp/packages.microsoft.gpg
           sudo install -D -o root -g root -m 644 /tmp/packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
           echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
@@ -495,332 +299,121 @@ EOFTOOLS
           sudo apt-get install -y code
           rm /tmp/packages.microsoft.gpg
           code --version
-          echo "✅ VS Code installed"
+          echo "VS Code installed"
 
-      - name: ⚙️ Configure Git
+      - name: "Configure Git"
         run: |
-          echo "⚙️ Configuring Git..."
           git config --global user.name "${GITHUB_ACTOR}"
           git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
           git config --global init.defaultBranch main
           git config --global core.autocrlf input
-          echo "✅ Git configured for: ${GITHUB_ACTOR}"
+          echo "Git configured for: ${GITHUB_ACTOR}"
 
       # ============================================================
       # PHASE 5: START SERVICES
       # ============================================================
 
-      - name: 🚀 Start OpenClaw Gateway
+      - name: "Start OpenClaw Gateway"
         run: |
-          echo "🚀 Starting OpenClaw Gateway..."
-
           OPENCLAW_DIR="$HOME/.openclaw"
           cd "$OPENCLAW_DIR"
-
           nohup openclaw gateway start > /tmp/openclaw.log 2>&1 &
           OPENCLAW_PID=$!
-
           sleep 5
-
           if pgrep -f "openclaw" > /dev/null; then
-            echo "✅ OpenClaw Gateway started (PID: $OPENCLAW_PID)"
+            echo "OpenClaw Gateway started (PID: $OPENCLAW_PID)"
           else
-            echo "⚠️ OpenClaw may need manual start"
+            echo "OpenClaw may need manual start"
             cat /tmp/openclaw.log 2>/dev/null || true
           fi
 
-      - name: 🔄 Deploy Backup Watcher
+      - name: "Deploy Backup Watcher"
+        env:
+          BACKUP_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
         run: |
-          echo "🔧 Deploying backup watcher..."
-
-          TOKEN="${{ secrets.GH_TOKEN }}"
-          [ -z "$TOKEN" ] && TOKEN="${{ secrets.GITHUB_TOKEN }}"
-
-          # FIX: Heredoc written without leading spaces, token injected via sed after
-          cat > ~/backup-watcher.sh << 'EOFWATCHER'
-#!/bin/bash
-
-# ═══════════════════════════════════════════════════════════════════
-# BACKUP WATCHER v3.0 - Projects + OpenClaw
-# ═══════════════════════════════════════════════════════════════════
-
-GITHUB_USER="${GITHUB_ACTOR}"
-BACKUP_REPO="openclaw-backup"
-TOKEN="TOKEN_PLACEHOLDER"
-PROJECTS_DIR="$HOME/Desktop/workspace"
-OPENCLAW_DIR="$HOME/.openclaw"
-LOG_FILE="$HOME/backup-watcher.log"
-TRACKED_FILE="$HOME/.backed-up-items"
-SCAN_INTERVAL=300
-
-mkdir -p "$(dirname "$LOG_FILE")"
-touch "$TRACKED_FILE"
-
-log() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
-}
-
-backup_project() {
-  local PROJECT_PATH="$1"
-  local PROJECT_NAME
-  PROJECT_NAME=$(basename "$PROJECT_PATH")
-  local TRACKED_KEY="project:$PROJECT_NAME"
-
-  grep -qx "$TRACKED_KEY" "$TRACKED_FILE" 2>/dev/null && return
-  [ -z "$(ls -A "$PROJECT_PATH" 2>/dev/null)" ] && return
-
-  if [ -d "$PROJECT_PATH/.git" ]; then
-    cd "$PROJECT_PATH" && git remote -v | grep -q "github.com" && {
-      echo "$TRACKED_KEY" >> "$TRACKED_FILE"
-      return
-    }
-  fi
-
-  log "📤 Backing up project: $PROJECT_NAME"
-
-  curl -s -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/json" \
-    https://api.github.com/user/repos \
-    -d "{\"name\":\"$PROJECT_NAME\",\"private\":true}" >/dev/null 2>&1
-
-  sleep 2
-  cd "$PROJECT_PATH"
-  [ ! -d ".git" ] && git init
-  git add -A
-  git commit -m "Auto-backup - $(date '+%Y-%m-%d %H:%M')" 2>/dev/null
-  git branch -M main
-  git remote remove origin 2>/dev/null
-  git remote add origin "https://x-access-token:$TOKEN@github.com/$GITHUB_USER/$PROJECT_NAME.git"
-
-  if git push -u origin main --force 2>/dev/null; then
-    log "✅ Project pushed: $PROJECT_NAME"
-    echo "$TRACKED_KEY" >> "$TRACKED_FILE"
-    update_backup_index "project" "$GITHUB_USER/$PROJECT_NAME"
-  fi
-}
-
-backup_openclaw() {
-  log "📤 Backing up OpenClaw files..."
-
-  local BACKUP_TMP="/tmp/openclaw-backup-$$"
-  rm -rf "$BACKUP_TMP"
-  mkdir -p "$BACKUP_TMP/openclaw/config"
-  mkdir -p "$BACKUP_TMP/openclaw/memory"
-  mkdir -p "$BACKUP_TMP/openclaw/skills"
-
-  cp "$OPENCLAW_DIR/openclaw.json" "$BACKUP_TMP/openclaw/config/" 2>/dev/null || true
-
-  for file in MEMORY.md USER.md SOUL.md AGENTS.md TOOLS.md IDENTITY.md HEARTBEAT.md BOOTSTRAP.md; do
-    cp "$OPENCLAW_DIR/workspace/$file" "$BACKUP_TMP/openclaw/" 2>/dev/null || true
-  done
-
-  cp -r "$OPENCLAW_DIR/memory/"* "$BACKUP_TMP/openclaw/memory/" 2>/dev/null || true
-  cp -r "$OPENCLAW_DIR/skills" "$BACKUP_TMP/openclaw/" 2>/dev/null || true
-
-  cat > "$BACKUP_TMP/README.md" << EOFREADME
-# OpenClaw Cloud Workstation Backup
-
-Auto-generated: $(date '+%Y-%m-%d %H:%M:%S')
-
-## Structure
-- openclaw/config/ - OpenClaw configuration
-- openclaw/memory/ - Memory files
-- openclaw/skills/ - Custom skills
-EOFREADME
-
-  cd "$BACKUP_TMP"
-  git init
-  git add -A
-  git commit -m "OpenClaw backup - $(date '+%Y-%m-%d %H:%M')" 2>/dev/null
-  git branch -M main
-
-  if git clone --depth=1 "https://x-access-token:$TOKEN@github.com/$GITHUB_USER/$BACKUP_REPO.git" /tmp/existing-backup 2>/dev/null; then
-    cp -r "$BACKUP_TMP/openclaw" /tmp/existing-backup/ 2>/dev/null || true
-    cp "$BACKUP_TMP/README.md" /tmp/existing-backup/ 2>/dev/null || true
-    cd /tmp/existing-backup
-    git add -A
-    git commit -m "OpenClaw backup - $(date '+%Y-%m-%d %H:%M')" 2>/dev/null
-    git push --force 2>/dev/null || true
-    cd ~
-    rm -rf /tmp/existing-backup
-  else
-    git remote add origin "https://x-access-token:$TOKEN@github.com/$GITHUB_USER/$BACKUP_REPO.git"
-    git push -u origin main --force 2>/dev/null || true
-  fi
-
-  cd ~
-  rm -rf "$BACKUP_TMP"
-  log "✅ OpenClaw files backed up"
-}
-
-update_backup_index() {
-  local TYPE="$1"
-  local ITEM="$2"
-  local INDEX_URL="https://x-access-token:$TOKEN@github.com/$GITHUB_USER/$BACKUP_REPO.git"
-
-  if git clone --depth=1 "$INDEX_URL" /tmp/index-update-$$ 2>/dev/null; then
-    cd /tmp/index-update-$$
-    # Update projects README, not root README
-    mkdir -p projects
-    if ! grep -q "$ITEM" projects/README.md 2>/dev/null; then
-      echo "- $ITEM" >> projects/README.md
-      git add projects/README.md
-      git commit -m "Add $TYPE: $(basename "$ITEM")" 2>/dev/null
-      git push 2>/dev/null || true
-    fi
-    cd ~
-    rm -rf /tmp/index-update-$$
-  fi
-}
-
-# ═══════════════════════════════════════════════════════════════════
-# MAIN EXECUTION
-# ═══════════════════════════════════════════════════════════════════
-
-log "═══════════════════════════════════════════════════════════════"
-log "👁️  BACKUP WATCHER v3.0 STARTED"
-log "   📂 Projects: $PROJECTS_DIR"
-log "   🤖 OpenClaw: $OPENCLAW_DIR"
-log "═══════════════════════════════════════════════════════════════"
-
-# Initial scan
-for dir in "$PROJECTS_DIR"/*/; do
-  [ -d "$dir" ] && backup_project "$dir"
-done
-backup_openclaw
-
-# Periodic scan loop
-while true; do
-  sleep $SCAN_INTERVAL
-  log "🔍 Periodic scan..."
-
-  for dir in "$PROJECTS_DIR"/*/; do
-    [ -d "$dir" ] && backup_project "$dir"
-  done
-
-  backup_openclaw
-  log "🔍 Periodic scan complete"
-done
-EOFWATCHER
-
-          sed -i "s|TOKEN_PLACEHOLDER|${TOKEN}|g" ~/backup-watcher.sh
-          chmod +x ~/backup-watcher.sh
+          echo "Deploying backup watcher..."
+          echo "aW1wb3J0IG9zLCBzeXMKCnRva2VuID0gb3MuZW52aXJvbi5nZXQoJ0JBQ0tVUF9UT0tFTicsICcnKQphY3RvciA9IG9zLmVudmlyb24uZ2V0KCdHSVRIVUJfQUNUT1InLCAnJykKCnNjcmlwdCA9ICcnJyMhL2Jpbi9iYXNoCkdJVEhVQl9VU0VSPSInJycgKyBhY3RvciArICcnJyIKQkFDS1VQX1JFUE89Im9wZW5jbGF3LWJhY2t1cCIKVE9LRU49IicnJyArIHRva2VuICsgJycnIgpQUk9KRUNUU19ESVI9IiRIT01FL0Rlc2t0b3Avd29ya3NwYWNlIgpPUEVOQ0xBV19ESVI9IiRIT01FLy5vcGVuY2xhdyIKTE9HX0ZJTEU9IiRIT01FL2JhY2t1cC13YXRjaGVyLmxvZyIKVFJBQ0tFRF9GSUxFPSIkSE9NRS8uYmFja2VkLXVwLWl0ZW1zIgpTQ0FOX0lOVEVSVkFMPTMwMAoKbWtkaXIgLXAgIiQoZGlybmFtZSAiJExPR19GSUxFIikiCnRvdWNoICIkVFJBQ0tFRF9GSUxFIgoKbG9nKCkgeyBlY2hvICJbJChkYXRlICIrJVktJW0tJWQgJUg6JU06JVMiKV0gJDEiIHwgdGVlIC1hICIkTE9HX0ZJTEUiOyB9CgpiYWNrdXBfcHJvamVjdCgpIHsKICBsb2NhbCBQUk9KRUNUX1BBVEg9IiQxIgogIGxvY2FsIFBST0pFQ1RfTkFNRT0kKGJhc2VuYW1lICIkUFJPSkVDVF9QQVRIIikKICBsb2NhbCBUUkFDS0VEX0tFWT0icHJvamVjdDokUFJPSkVDVF9OQU1FIgogIGdyZXAgLXF4ICIkVFJBQ0tFRF9LRVkiICIkVFJBQ0tFRF9GSUxFIiAyPi9kZXYvbnVsbCAmJiByZXR1cm4KICBbIC16ICIkKGxzIC1BICIkUFJPSkVDVF9QQVRIIiAyPi9kZXYvbnVsbCkiIF0gJiYgcmV0dXJuCiAgaWYgWyAtZCAiJFBST0pFQ1RfUEFUSC8uZ2l0IiBdOyB0aGVuCiAgICBjZCAiJFBST0pFQ1RfUEFUSCIgJiYgZ2l0IHJlbW90ZSAtdiB8IGdyZXAgLXEgImdpdGh1Yi5jb20iICYmIHsKICAgICAgZWNobyAiJFRSQUNLRURfS0VZIiA+PiAiJFRSQUNLRURfRklMRSI7IHJldHVybjsgfQogIGZpCiAgbG9nICJCYWNraW5nIHVwOiAkUFJPSkVDVF9OQU1FIgogIGN1cmwgLXMgLVggUE9TVCAtSCAiQXV0aG9yaXphdGlvbjogdG9rZW4gJFRPS0VOIiAtSCAiQ29udGVudC1UeXBlOiBhcHBsaWNhdGlvbi9qc29uIiBcCiAgICBodHRwczovL2FwaS5naXRodWIuY29tL3VzZXIvcmVwb3MgXAogICAgLWQgIntcIm5hbWVcIjpcIiRQUk9KRUNUX05BTUVcIixcInByaXZhdGVcIjp0cnVlfSIgPi9kZXYvbnVsbCAyPiYxCiAgc2xlZXAgMgogIGNkICIkUFJPSkVDVF9QQVRIIgogIFsgISAtZCAiLmdpdCIgXSAmJiBnaXQgaW5pdAogIGdpdCBhZGQgLUEKICBnaXQgY29tbWl0IC1tICJBdXRvLWJhY2t1cCAkKGRhdGUgKyVZLSVtLSVkKSIgMj4vZGV2L251bGwKICBnaXQgYnJhbmNoIC1NIG1haW4KICBnaXQgcmVtb3RlIHJlbW92ZSBvcmlnaW4gMj4vZGV2L251bGwKICBnaXQgcmVtb3RlIGFkZCBvcmlnaW4gImh0dHBzOi8veC1hY2Nlc3MtdG9rZW46JFRPS0VOQGdpdGh1Yi5jb20vJEdJVEhVQl9VU0VSLyRQUk9KRUNUX05BTUUuZ2l0IgogIGlmIGdpdCBwdXNoIC11IG9yaWdpbiBtYWluIC0tZm9yY2UgMj4vZGV2L251bGw7IHRoZW4KICAgIGxvZyAiUHVzaGVkOiAkUFJPSkVDVF9OQU1FIgogICAgZWNobyAiJFRSQUNLRURfS0VZIiA+PiAiJFRSQUNLRURfRklMRSIKICAgIHVwZGF0ZV9pbmRleCAicHJvamVjdCIgIiRHSVRIVUJfVVNFUi8kUFJPSkVDVF9OQU1FIgogIGZpCn0KCmJhY2t1cF9vcGVuY2xhdygpIHsKICBsb2cgIkJhY2tpbmcgdXAgT3BlbkNsYXcuLi4iCiAgbG9jYWwgVE1QPSIvdG1wL29jLWJhay0kJCIKICBybSAtcmYgIiRUTVAiCiAgbWtkaXIgLXAgIiRUTVAvb3BlbmNsYXcvY29uZmlnIiAiJFRNUC9vcGVuY2xhdy9tZW1vcnkiICIkVE1QL29wZW5jbGF3L3NraWxscyIKICBjcCAiJE9QRU5DTEFXX0RJUi9vcGVuY2xhdy5qc29uIiAiJFRNUC9vcGVuY2xhdy9jb25maWcvIiAyPi9kZXYvbnVsbCB8fCB0cnVlCiAgZm9yIGYgaW4gTUVNT1JZLm1kIFVTRVIubWQgU09VTC5tZCBBR0VOVFMubWQgVE9PTFMubWQgSURFTlRJVFkubWQgSEVBUlRCRUFULm1kIEJPT1RTVFJBUC5tZDsgZG8KICAgIGNwICIkT1BFTkNMQVdfRElSL3dvcmtzcGFjZS8kZiIgIiRUTVAvb3BlbmNsYXcvIiAyPi9kZXYvbnVsbCB8fCB0cnVlCiAgZG9uZQogIGNwIC1yICIkT1BFTkNMQVdfRElSL21lbW9yeS8iKiAiJFRNUC9vcGVuY2xhdy9tZW1vcnkvIiAyPi9kZXYvbnVsbCB8fCB0cnVlCiAgY3AgLXIgIiRPUEVOQ0xBV19ESVIvc2tpbGxzIiAiJFRNUC9vcGVuY2xhdy8iIDI+L2Rldi9udWxsIHx8IHRydWUKICBwcmludGYgIiMgT3BlbkNsYXcgQmFja3VwXG5cbkF1dG8tZ2VuZXJhdGVkOiAkKGRhdGUpXG4iID4gIiRUTVAvUkVBRE1FLm1kIgogIGlmIGdpdCBjbG9uZSAtLWRlcHRoPTEgImh0dHBzOi8veC1hY2Nlc3MtdG9rZW46JFRPS0VOQGdpdGh1Yi5jb20vJEdJVEhVQl9VU0VSLyRCQUNLVVBfUkVQTy5naXQiIC90bXAvb2MtZXhpc3RpbmcgMj4vZGV2L251bGw7IHRoZW4KICAgIGNwIC1yICIkVE1QL29wZW5jbGF3IiAvdG1wL29jLWV4aXN0aW5nLyAyPi9kZXYvbnVsbCB8fCB0cnVlCiAgICBjcCAiJFRNUC9SRUFETUUubWQiIC90bXAvb2MtZXhpc3RpbmcvIDI+L2Rldi9udWxsIHx8IHRydWUKICAgIGNkIC90bXAvb2MtZXhpc3RpbmcKICAgIGdpdCBhZGQgLUEKICAgIGdpdCBjb21taXQgLW0gIk9wZW5DbGF3IGJhY2t1cCAkKGRhdGUgKyVZLSVtLSVkKSIgMj4vZGV2L251bGwKICAgIGdpdCBwdXNoIC0tZm9yY2UgMj4vZGV2L251bGwgfHwgdHJ1ZQogICAgY2Qgfjsgcm0gLXJmIC90bXAvb2MtZXhpc3RpbmcKICBmaQogIHJtIC1yZiAiJFRNUCIKICBsb2cgIk9wZW5DbGF3IGJhY2t1cCBkb25lIgp9Cgp1cGRhdGVfaW5kZXgoKSB7CiAgbG9jYWwgVFlQRT0iJDEiIElURU09IiQyIgogIGxvY2FsIFVSTD0iaHR0cHM6Ly94LWFjY2Vzcy10b2tlbjokVE9LRU5AZ2l0aHViLmNvbS8kR0lUSFVCX1VTRVIvJEJBQ0tVUF9SRVBPLmdpdCIKICBpZiBnaXQgY2xvbmUgLS1kZXB0aD0xICIkVVJMIiAvdG1wL2lkeC0kJCAyPi9kZXYvbnVsbDsgdGhlbgogICAgY2QgL3RtcC9pZHgtJCQKICAgIG1rZGlyIC1wIHByb2plY3RzCiAgICBncmVwIC1xICIkSVRFTSIgcHJvamVjdHMvUkVBRE1FLm1kIDI+L2Rldi9udWxsIHx8IHsKICAgICAgZWNobyAiLSAkSVRFTSIgPj4gcHJvamVjdHMvUkVBRE1FLm1kCiAgICAgIGdpdCBhZGQgcHJvamVjdHMvUkVBRE1FLm1kCiAgICAgIGdpdCBjb21taXQgLW0gIkFkZCAkVFlQRTogJChiYXNlbmFtZSAkSVRFTSkiIDI+L2Rldi9udWxsCiAgICAgIGdpdCBwdXNoIDI+L2Rldi9udWxsIHx8IHRydWUKICAgIH0KICAgIGNkIH47IHJtIC1yZiAvdG1wL2lkeC0kJAogIGZpCn0KCmxvZyAiQmFja3VwIFdhdGNoZXIgdjMuMCBzdGFydGVkIgoKZm9yIGRpciBpbiAiJFBST0pFQ1RTX0RJUiIvKi87IGRvCiAgWyAtZCAiJGRpciIgXSAmJiBiYWNrdXBfcHJvamVjdCAiJGRpciIKZG9uZQpiYWNrdXBfb3BlbmNsYXcKCndoaWxlIHRydWU7IGRvCiAgc2xlZXAgJFNDQU5fSU5URVJWQUwKICBsb2cgIlBlcmlvZGljIHNjYW4uLi4iCiAgZm9yIGRpciBpbiAiJFBST0pFQ1RTX0RJUiIvKi87IGRvCiAgICBbIC1kICIkZGlyIiBdICYmIGJhY2t1cF9wcm9qZWN0ICIkZGlyIgogIGRvbmUKICBiYWNrdXBfb3BlbmNsYXcKZG9uZQonJycKCnBhdGggPSBvcy5wYXRoLmV4cGFuZHVzZXIoJ34vYmFja3VwLXdhdGNoZXIuc2gnKQp3aXRoIG9wZW4ocGF0aCwgJ3cnKSBhcyBmOgogICAgZi53cml0ZShzY3JpcHQpCm9zLmNobW9kKHBhdGgsIDBvNzU1KQpwcmludCgnYmFja3VwLXdhdGNoZXIuc2ggd3JpdHRlbicpCg==" | base64 -d | python3
 
           nohup bash ~/backup-watcher.sh > /dev/null 2>&1 &
-          WATCHER_PID=$!
-
           sleep 3
           if pgrep -f "backup-watcher.sh" > /dev/null; then
-            echo "✅ Backup watcher v3.0 deployed (PID: $WATCHER_PID)"
+            echo "Backup watcher v3.0 deployed"
           else
-            echo "❌ Watcher failed to start"
-            cat ~/backup-watcher.log
+            echo "Watcher failed to start - check logs"
+            cat ~/backup-watcher.log 2>/dev/null || true
           fi
 
       # ============================================================
-      # PHASE 6: FINAL INFO & KEEP ALIVE
+      # PHASE 6: FINAL INFO AND KEEP ALIVE
       # ============================================================
 
-      - name: 💡 Keep Alive & Connection Info
+      - name: "Keep Alive and Connection Info"
         run: |
           CLOUDFLARE_HOST=$(cat /tmp/cf_host.txt 2>/dev/null || echo "")
 
-          echo ""
-          echo "╔════════════════════════════════════════════════════════════════════╗"
-          echo "║                                                                    ║"
-          echo "║       🚀 LINUX CLOUD WORKSTATION + OPENCLAW READY  🚀            ║"
-          echo "║                                                                    ║"
-          echo "╚════════════════════════════════════════════════════════════════════╝"
-          echo ""
+          echo "======================================================================"
+          echo "     LINUX CLOUD WORKSTATION + OPENCLAW READY"
+          echo "======================================================================"
 
           if [ -n "$CLOUDFLARE_HOST" ]; then
-            echo "┌────────────────────────────────────────────────────────────────────┐"
-            echo "│ 🖥️  VNC CONNECTION                                                 │"
-            echo "├────────────────────────────────────────────────────────────────────┤"
-            echo "│                                                                    │"
-            echo "│ STEP 1: Run on your LOCAL machine:                                │"
-            echo "│   cloudflared access tcp --hostname $CLOUDFLARE_HOST --url 127.0.0.1:5902"
-            echo "│                                                                    │"
-            echo "│ STEP 2: Connect VNC Viewer to:                                    │"
-            echo "│   Server: localhost:5902                                          │"
-            if [ -n "${{ secrets.VNC_PASSWORD }}" ]; then
-              echo "│   Password: [Your VNC_PASSWORD secret]                            │"
-            else
-              echo "│   Password: P@ssw0rd123!                                          │"
-            fi
-            echo "│                                                                    │"
-            echo "└────────────────────────────────────────────────────────────────────┘"
             echo ""
+            echo "--- VNC CONNECTION ---"
+            echo "STEP 1 - Run on your LOCAL machine:"
+            echo "  cloudflared access tcp --hostname $CLOUDFLARE_HOST --url 127.0.0.1:5902"
+            echo ""
+            echo "STEP 2 - Connect VNC Viewer:"
+            echo "  Server:   localhost:5902"
+            if [ -n "${{ secrets.VNC_PASSWORD }}" ]; then
+              echo "  Password: [Your VNC_PASSWORD secret]"
+            else
+              echo "  Password: P@ssw0rd123!"
+            fi
           fi
 
-          echo "┌────────────────────────────────────────────────────────────────────┐"
-          echo "│ 🤖 TELEGRAM BOT                                                    │"
-          echo "├────────────────────────────────────────────────────────────────────┤"
-          echo "│                                                                    │"
-          echo "│   Bot: @UnQChatai_Bot                                              │"
-          echo "│   Start: https://t.me/UnQChatai_Bot                                │"
-          echo "│                                                                    │"
-          echo "└────────────────────────────────────────────────────────────────────┘"
           echo ""
-
-          echo "┌────────────────────────────────────────────────────────────────────┐"
-          echo "│ 📂 OPENCLAW BACKUP                                                 │"
-          echo "├────────────────────────────────────────────────────────────────────┤"
-          echo "│                                                                    │"
-          echo "│   Repo: ${GITHUB_ACTOR}/openclaw-backup (Private)                │"
-          echo "│   Files: MEMORY.md, USER.md, SOUL.md, openclaw.json, etc.          │"
-          echo "│   Auto-backup: Every 5 min                                        │"
-          echo "│                                                                    │"
-          echo "└────────────────────────────────────────────────────────────────────┘"
+          echo "--- TELEGRAM BOT ---"
+          echo "  Bot:   @UnQChatai_Bot"
+          echo "  Start: https://t.me/UnQChatai_Bot"
           echo ""
-
-          echo "📊 Environment Details:"
-          echo "  🖥️  OS:          Ubuntu Linux"
-          echo "  🖥️  Desktop:     XFCE4"
-          echo "  👤 User:        ${USER}"
-          echo "  📂 Workspace:   ~/Desktop/workspace"
-          echo "  🤖 OpenClaw:    ~/.openclaw"
-          echo "  ⏱️  Duration:    6 hours"
-          echo "  🔄 Backup:      Auto-sync v3.0"
+          echo "--- OPENCLAW BACKUP ---"
+          echo "  Repo:        ${GITHUB_ACTOR}/openclaw-backup (Private)"
+          echo "  Auto-backup: Every 5 min"
           echo ""
+          echo "--- ENVIRONMENT ---"
+          echo "  OS:        Ubuntu Linux"
+          echo "  Desktop:   XFCE4"
+          echo "  User:      ${USER}"
+          echo "  Workspace: ~/Desktop/workspace"
+          echo "  OpenClaw:  ~/.openclaw"
+          echo "  Duration:  6 hours"
+          echo "======================================================================"
 
-          # FIX: ((VAR++)) replaced with VAR=$((VAR + 1)) to avoid exit code 1
-          # when VAR is 0 (arithmetic expression returns 1 which bash treats as error)
           RESTART_COUNT=0
           MAX_RESTARTS=5
 
           while true; do
             sleep 1800
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Heartbeat"
 
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] 💓 Heartbeat"
-
-            # VNC health check
             if ! pgrep -f "Xtigervnc.*${{ env.VNC_DISPLAY }}" > /dev/null; then
               if [ "$RESTART_COUNT" -lt "$MAX_RESTARTS" ]; then
-                echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⚠️  VNC disconnected - restarting..."
-
+                echo "VNC disconnected - restarting..."
                 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-
-                # FIX: Removed deprecated -alwaysshared flag here too
-                vncserver ${{ env.VNC_DISPLAY }} \
-                  -geometry ${{ env.VNC_GEOMETRY }} \
-                  -depth ${{ env.VNC_DEPTH }} \
-                  -localhost no
-
+                vncserver ${{ env.VNC_DISPLAY }}                   -geometry ${{ env.VNC_GEOMETRY }}                   -depth ${{ env.VNC_DEPTH }}                   -localhost no
                 sleep 5
                 RESTART_COUNT=$((RESTART_COUNT + 1))
               fi
             fi
 
-            # OpenClaw health check
             if ! pgrep -f "openclaw" > /dev/null; then
-              echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔄 Restarting OpenClaw..."
+              echo "Restarting OpenClaw..."
               cd "$HOME/.openclaw"
               nohup openclaw gateway start > /tmp/openclaw.log 2>&1 &
             fi
 
-            # Backup watcher health check
             if ! pgrep -f "backup-watcher.sh" > /dev/null; then
-              echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🔄 Restarting backup watcher..."
+              echo "Restarting backup watcher..."
               nohup bash ~/backup-watcher.sh > /dev/null 2>&1 &
             fi
           done
