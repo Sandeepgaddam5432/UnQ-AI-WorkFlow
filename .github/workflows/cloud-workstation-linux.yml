@@ -122,8 +122,8 @@ This repository maintains a backup of:
 - Project index
 
 ## Structure
-- `openclaw/` - OpenClaw config, memory, and skills
-- `projects/` - Project index
+- openclaw/ - OpenClaw config, memory, and skills
+- projects/ - Project index
 
 ## Backed Up Projects
 EOFREADME
